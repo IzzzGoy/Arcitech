@@ -112,6 +112,10 @@ fun<S: Any, I: Message.Intent> ContainerBuilder<*, S, I>.source(initial: S, bloc
     stateProxy = StateProxy.Source.Factory<S, I>(initial).apply(block).build()
 }
 
+fun<S: Any, I: Message.Intent> ContainerBuilder<*, S, I>.synthetic(block: StateProxy.Synthetic.Factory<S, I>.() -> Unit) {
+    stateProxy = StateProxy.Synthetic.Factory<S, I>().apply(block).build()
+}
+
 interface Container<E: Message.Event, S: Any, I: Message.Intent>: AutoCloseable {
     val events: Flow<E>
     val state: StateProxy<S, I>

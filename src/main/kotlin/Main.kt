@@ -1,7 +1,4 @@
-import container.ContainerBuilder
-import container.Message
-import container.eventHandler
-import container.source
+import container.*
 
 
 interface A : Message.Event {
