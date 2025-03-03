@@ -1,10 +1,8 @@
 package container
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.*
+import manager.ContainerManager
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.reflect.KClass
@@ -16,9 +14,9 @@ sealed interface Message {
 
 sealed interface StateProxy<S: Any, I: Message.Intent> : AutoCloseable {
     interface Source<S: Any, I: Message.Intent> : StateProxy<S, I> {
-        class Factory<S: Any, I: Message.Intent>(initial: S) {
+        class Factory<S: Any, I: Message.Intent>(initial: S, private val parentContext: CoroutineContext) {
 
-            private var context: CoroutineContext = EmptyCoroutineContext
+            private var context: CoroutineContext = parentContext
             private val innerFlow = MutableStateFlow(initial)
             private var reducer: suspend (S, I) -> S = { _, _ -> initial }
 
@@ -27,7 +25,7 @@ sealed interface StateProxy<S: Any, I: Message.Intent> : AutoCloseable {
             }
 
             fun context(context: CoroutineContext) {
-                this.context = context
+                this.context = parentContext + context
             }
 
             fun build(): StateProxy<S, I> {
@@ -52,9 +50,9 @@ sealed interface StateProxy<S: Any, I: Message.Intent> : AutoCloseable {
     }
 
     interface Synthetic<S: Any, I: Message.Intent> : StateProxy<S, I> {
-        class Factory<S: Any, I: Message.Intent> {
+        class Factory<S: Any, I: Message.Intent>(private val parentContext: CoroutineContext) {
 
-            private var context: CoroutineContext = EmptyCoroutineContext
+            private var context: CoroutineContext = parentContext
             private var provider: () -> Flow<S> = throw IllegalStateException("No provider")
 
             fun<T1: Any, T2: Any> syntez(cT1: Container<*, T1, *>, cT2: Container<*, T2, *>, rule: (Flow<T1>, Flow<T2>) -> Flow<S>) {
@@ -75,7 +73,7 @@ sealed interface StateProxy<S: Any, I: Message.Intent> : AutoCloseable {
 
 
             fun context(context: CoroutineContext) {
-                this.context = context
+                this.context = parentContext + context
             }
 
             fun build(): StateProxy<S, I> {
@@ -98,7 +96,7 @@ sealed interface StateProxy<S: Any, I: Message.Intent> : AutoCloseable {
     }
 
     class None<S: Any, I: Message.Intent> : StateProxy<S, I> {
-        override val flow: Flow<S> = throw IllegalStateException("No source")
+        override val flow: Flow<S> = emptyFlow()
         override fun close() {}
 
         override fun reduce(intent: I) = throw IllegalStateException("No source")
@@ -108,22 +106,22 @@ sealed interface StateProxy<S: Any, I: Message.Intent> : AutoCloseable {
     fun reduce(intent: I)
 }
 
-fun<S: Any, I: Message.Intent> ContainerBuilder<*, S, I>.source(initial: S, block: StateProxy.Source.Factory<S, I>.() -> Unit) {
-    stateProxy = StateProxy.Source.Factory<S, I>(initial).apply(block).build()
-}
-
-fun<S: Any, I: Message.Intent> ContainerBuilder<*, S, I>.synthetic(block: StateProxy.Synthetic.Factory<S, I>.() -> Unit) {
-    stateProxy = StateProxy.Synthetic.Factory<S, I>().apply(block).build()
-}
-
 interface Container<E: Message.Event, S: Any, I: Message.Intent>: AutoCloseable {
     val events: Flow<E>
     val state: StateProxy<S, I>
 
-    fun sendMessage(message: Message)
+    suspend fun sendMessage(message: Message)
 }
 
-class ContainerBuilder<E: Message.Event, S: Any, I: Message.Intent> {
+class ContainerBuilder<E: Message.Event, S: Any, I: Message.Intent>(
+    private val parentContext: CoroutineContext
+) {
+
+    private var scope: CoroutineScope = CoroutineScope(parentContext)
+
+    fun coroutineContext(context: CoroutineContext) {
+        scope = CoroutineScope(parentContext + context)
+    }
 
     internal class EventHandler<E: Message.Event>(
         val eventClass: KClass<E>,
@@ -144,11 +142,67 @@ class ContainerBuilder<E: Message.Event, S: Any, I: Message.Intent> {
         eventsHandlers.add(EventHandler(eventClass, handler))
     }
 
-    var stateProxy: StateProxy<S, I> = StateProxy.None()
+    private var stateProxy: StateProxy<S, I> = StateProxy.None()
+
+    fun source(initial: S, block: StateProxy.Source.Factory<S, I>.() -> Unit) {
+        stateProxy = StateProxy.Source.Factory<S, I>(initial, parentContext).apply(block).build()
+    }
+
+    fun synthetic(block: StateProxy.Synthetic.Factory<S, I>.() -> Unit) {
+        stateProxy = StateProxy.Synthetic.Factory<S, I>(parentContext).apply(block).build()
+    }
+
+    private var events = MutableSharedFlow<E>()
+
+    fun event(block: suspend () -> E) {
+        scope.launch {
+            events.emit(block())
+        }
+    }
+
+    fun intent(block: suspend () -> I) {
+        scope.launch {
+            stateProxy.reduce(block())
+        }
+    }
+
+    fun build(): Container<E, S, I> {
+        return object : Container<E, S, I> {
+            override val events: Flow<E> = this@ContainerBuilder.events
+            override val state: StateProxy<S, I> = stateProxy
+
+            override suspend fun sendMessage(message: Message) {
+                when {
+                    message is Message.Event -> {
+                        scope.launch {
+                            eventsHandlers.filter {
+                                it.eventClass.isInstance(message)
+                            }.forEach {
+                                it(message)
+                            }
+                        }
+                    }
+                    message is Message.Intent && message as? I != null -> {
+                        stateProxy.reduce(message)
+                    }
+                    else -> {
+                        throw IllegalArgumentException("Expected Message.Event or Message.Intent, but received ${message::class.java.simpleName}")
+                    }
+                }
+
+            }
+
+            override fun close() {
+                scope.cancel()
+            }
+        }
+    }
 }
 
 inline fun<reified T: Message.Event> ContainerBuilder<*, *, *>.eventHandler(noinline handler: suspend (T) -> Unit) {
     eventHandler(T::class, handler)
 }
+
+
 
 
