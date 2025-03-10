@@ -61,6 +61,7 @@ class ContainerManagerBuilder() {
             private val factories = this@ContainerManagerBuilder.factories
             private val eventConsumers = mutableMapOf<String, List<KClass<out Message.Event>>>()
             private val observers = mutableMapOf<String, Job>()
+            private val dependencies = mutableMapOf<String, List<String>>()
 
             override val scope: CoroutineScope by lazy {
                 CoroutineScope(SupervisorJob() + context + CoroutineExceptionHandler { coroutineContext, throwable ->
@@ -94,15 +95,34 @@ class ContainerManagerBuilder() {
                 }
             }
 
-            override fun <E : Message.Event, S : Any, I : Message.Intent> provide(key: String): Container<E, S, I> {
+            override fun <E : Message.Event, S : Any, I : Message.Intent> provide(
+                eKClass: KClass<E>,
+                sKClass: KClass<S>,
+                iKClass: KClass<I>,
+                key: String
+            ): Container<E, S, I> {
+                check(metadata[key] != null && metadata[key]?.iKClass?.equals(iKClass) == true) {
+                    "Incompatible intent types for key: $key"
+                }
+                check(metadata[key] != null && metadata[key]?.eKClass?.equals(eKClass) == true) {
+                    "Incompatible events types for key: $key"
+                }
+                check(metadata[key] != null && metadata[key]?.sKClass?.equals(sKClass) == true) {
+                    "Incompatible state types for key: $key"
+                }
                 return active.getOrPut(key) {
                     factories[key]?.let { factory ->
-                        val builder = ContainerBuilder<E, S, I>(scope.coroutineContext).also {
+                        val builder = ContainerBuilder<E, S, I>(scope.coroutineContext, this).also {
                             it.factory(this)
-
+                        }
+                        check(!hasCyclicDependency(key) && builder.metadata.none { it == key }) {
+                            "Container with $key has cyclic dependencies"
                         }
 
+                        dependencies[key] = builder.metadata
+
                         val container = builder.build().also {
+
                             observers[key] = scope.launch {
                                 it.events.collect { event ->
                                     send(event)
@@ -115,6 +135,30 @@ class ContainerManagerBuilder() {
                     } ?: throw IllegalArgumentException("No factory found for key: $key")
                 } as Container<E, S, I>
             }
+
+
+            private fun hasCyclicDependency(
+                containerTag: String,
+                visited: MutableSet<String> = mutableSetOf(),
+                recursionStack: MutableSet<String> = mutableSetOf()
+            ): Boolean {
+                if (containerTag in recursionStack) return true
+                if (containerTag in visited) return false
+
+                visited.add(containerTag)
+                recursionStack.add(containerTag)
+
+                val dependencies = dependencies[containerTag] ?: emptyList()
+                for (dep in dependencies) {
+                    if (hasCyclicDependency(dep, visited, recursionStack)) {
+                        return true
+                    }
+                }
+
+                recursionStack.remove(containerTag)
+                return false
+            }
+
         }
     }
 }
