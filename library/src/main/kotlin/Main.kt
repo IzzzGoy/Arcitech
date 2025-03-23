@@ -52,13 +52,13 @@ fun main(args: Array<String>) {
             }
         }
 
-        val container = manager.provide<E, Int, A>("Test")
+        /*val container = manager.provide<E, Int, A>("Test")
         launch {
             container.state.flow.collect { println(it) } // Output: 1, 2
         }
         delay(100)
         manager.send(E.E1)
         manager.send(A.Inc)
-        manager.send(E.E2)
+        manager.send(E.E2)*/
     }
 }

@@ -1,0 +1,39 @@
+{
+  "parameters": {
+    "Counter" : {
+      "type": "integer",
+      "initial" : "33",
+      "intents": {
+        "Increment" : {
+          "args": null
+        },
+        "Decrement" : {
+          "args": null
+        },
+        "Add" : {
+          "args": {
+            "number": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "StringHolder" : {
+      "type": "string",
+      "initial": "",
+      "intents": {
+        "Set" : {
+          "args": {
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "projection": {
+    "GenericModel" : ["Counter", "StringHolder"]
+  }
+}
