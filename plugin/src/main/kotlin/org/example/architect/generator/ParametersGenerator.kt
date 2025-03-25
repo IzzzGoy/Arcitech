@@ -3,21 +3,21 @@ package org.example.architect.generator
 import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import container.Message
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
 import org.example.architect.models.ConfigSchema
+import org.example.architect.models.ProjectionSource
+import org.example.architect.models.ProjectionSourceType
+import parameter.AbstractEventHandler
+import parameter.EventChain
 import parameter.ParameterHolder
 import parameter.Projection
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
 
 class ParametersGenerator {
     fun generate(config: ConfigSchema, packageName: String): List<FileSpec> {
 
-
-
+        println(buildEventChains(config))
         return config.parameters.map { (classname, definition) ->
 
             val intentsType = TypeSpec.interfaceBuilder(
@@ -25,10 +25,6 @@ class ParametersGenerator {
             )
                 .addModifiers(KModifier.SEALED)
                 .addSuperinterface(Message.Intent::class)
-                .build()
-
-            FileSpec.builder(packageName, classname)
-                .addType(intentsType)
                 .addTypes(
                     definition.intents.map {
                         if (it.value.args == null) {
@@ -40,7 +36,10 @@ class ParametersGenerator {
                                         .also { build ->
                                             it.value.args?.forEach { (paramName, def) ->
                                                 build.addParameter(
-                                                    ParameterSpec.builder(paramName, castType(def.type))
+                                                    ParameterSpec.builder(
+                                                        paramName,
+                                                        castType(def.type)
+                                                    )
                                                         .build()
                                                 )
                                             }
@@ -50,9 +49,9 @@ class ParametersGenerator {
                                 .addProperties(
                                     it.value.args?.map { (paramName, def) ->
                                         PropertySpec.builder(paramName, castType(def.type))
-                                           .initializer(paramName)
-                                           .build()
-                                    }?: emptyList()
+                                            .initializer(paramName)
+                                            .build()
+                                    } ?: emptyList()
                                 )
                         }
                             .addModifiers(KModifier.DATA)
@@ -60,6 +59,10 @@ class ParametersGenerator {
                             .build()
                     }
                 )
+                .build()
+
+            FileSpec.builder(packageName, classname)
+                .addType(intentsType)
                 .addType(
                     TypeSpec.classBuilder("${classname}ParameterHolder")
                         .addSuperclassConstructorParameter(
@@ -82,7 +85,13 @@ class ParametersGenerator {
                                     .returns(castType(definition.type))
                                     .addParameter(
                                         ParameterSpec
-                                            .builder("intent", ClassName(packageName, intentName))
+                                            .builder(
+                                                "intent",
+                                                ClassName(
+                                                    packageName,
+                                                    "${classname}Intents.$intentName"
+                                                )
+                                            )
                                             .build()
                                     )
                                     .addParameter(
@@ -93,121 +102,282 @@ class ParametersGenerator {
                         )
                         .addFunction(
                             FunSpec.builder("handle")
-                               .addModifiers(KModifier.OVERRIDE, KModifier.SUSPEND)
-                               .addParameter(
-                                    ParameterSpec.builder("e", ClassName(packageName, "${classname}Intents"))
-                                       .build()
+                                .addModifiers(KModifier.OVERRIDE, KModifier.SUSPEND)
+                                .addParameter(
+                                    ParameterSpec.builder(
+                                        "e",
+                                        ClassName(packageName, "${classname}Intents")
+                                    )
+                                        .build()
                                 )
                                 .beginControlFlow("when(e)")
                                 .addCode(
                                     definition.intents.map { (intent, name) ->
-                                        "is $intent -> update(handle${intent}(e, value))"
+                                        "is ${classname}Intents.$intent -> update(handle${intent}(e, value))"
                                     }.joinToString(separator = "\n")
                                 )
                                 .endControlFlow()
-                               .build()
+                                .build()
 
+                        )
+                        .addFunction(
+                            FunSpec.builder("process")
+                                .addModifiers(KModifier.SUSPEND, KModifier.OVERRIDE)
+                                .addParameter(
+                                    ParameterSpec.builder("e", Message::class)
+                                        .build()
+                                )
+                                .beginControlFlow("if (e is ${classname}Intents)")
+                                .addStatement("handle(e)")
+                                .endControlFlow()
+                                .build()
                         )
                         .build()
                 )
                 .build()
-        } + config.projection.map { (name, params) ->
-
-            FileSpec.builder(packageName, "Projection$name")
+        } + generateProjections(
+            config,
+            packageName
+        ) + config.events.map { (eventName, definition) ->
+            FileSpec.builder(
+                packageName, "Event$eventName"
+            )
                 .addType(
-                    TypeSpec.classBuilder("ProjectionModel$name")
-                        .addModifiers(KModifier.DATA)
-                        .primaryConstructor(
-                            FunSpec.constructorBuilder()
-                               .addParameters(
-                                   params.map {
-                                       ParameterSpec.builder(it, castType(config.parameters[it]!!.type))
-                                           .defaultValue(
-                                               if (config.parameters[it]!!.type == "string") {
-                                                   "\"${config.parameters[it]!!.initial}\""
-                                               } else {
-                                                   config.parameters[it]!!.initial
-                                               }
-                                           )
-                                           .build()
-                                   }
-                               )
-                               .build()
+                    if (definition.args == null) {
+                        TypeSpec.objectBuilder(
+                            "Event$eventName",
                         )
-                        .addProperties(
-                            params.map { s ->
-                                PropertySpec.builder(s, castType(config.parameters[s]!!.type))
-                                    .initializer(s)
+                            .addSuperinterface(Message.Event::class)
+                    } else {
+                        TypeSpec.classBuilder(
+                            "Event$eventName",
+                        )
+                            .addSuperinterface(Message.Event::class)
+                            .primaryConstructor(
+                                FunSpec.constructorBuilder()
+                                    .addParameters(
+                                        definition.args.map { (paramName, def) ->
+                                            ParameterSpec.builder(
+                                                paramName,
+                                                castType(def.type)
+                                            )
+                                                .build()
+                                        }
+                                    )
                                     .build()
-                            }
-                        )
-                       .build()
+                            )
+                            .addProperties(
+                                definition.args.map { (paramName, def) ->
+                                    PropertySpec.builder(paramName, castType(def.type))
+                                        .initializer(paramName)
+                                        .build()
+                                }
+                            )
+                    }
+                        .addModifiers(KModifier.DATA)
+                        .build()
                 )
                 .addType(
-                    TypeSpec.classBuilder("Projection$name")
+                    TypeSpec.classBuilder(
+                        "Event${eventName}Handler"
+                    )
+                        .addModifiers(KModifier.ABSTRACT)
+                        .superclass(AbstractEventHandler::class.asTypeName().parameterizedBy(ClassName(packageName, "Event${eventName}")))
                         .primaryConstructor(
                             FunSpec.constructorBuilder()
-                               .addParameters(
-                                   params.map {
-                                       ParameterSpec.builder(it, ClassName(packageName, "${it}ParameterHolder"))
-                                           .build()
-                                   }
-                               )
-                                .addParameter("coroutineContext", CoroutineContext::class)
-                               .build()
+                                .addParameter(
+                                    ParameterSpec.builder("coroutineContext", CoroutineContext::class).build()
+                                ).build()
                         )
-                        .addModifiers(KModifier.ABSTRACT)
-                        .superclass(Projection::class.asTypeName().parameterizedBy(
-                            ClassName(packageName, "ProjectionModel$name")
-                        ))
-                        .addProperty(
-                            PropertySpec.builder(
-                                "flow",
-                                StateFlow::class.asTypeName().parameterizedBy(
-                                    ClassName(packageName, "ProjectionModel$name")
-                                )
-                            )
-                                .addModifiers(KModifier.OVERRIDE)
-                                .initializer(
-                                    //"MutableStateFlow(ProjectionModel$name())"
-                                    CodeBlock.builder()
-                                        .addStatement("%M(", MemberName("kotlinx.coroutines.flow", "combine"))
-                                        .indent()
-                                        .addStatement(
-                                            params.joinToString(", ") { "$it.flow" }
-                                        )
-                                        .unindent()
-                                        .addStatement(") { ${params.indices.joinToString(separator = ", ") { "t$it" }} ->")
-                                        .indent()
-                                        .addStatement("project(${params.indices.joinToString(separator = ", ") { "t$it" }})")
-                                        .unindent()
-                                        .addStatement("}")
-                                        .addStatement(".%M(", MemberName("kotlinx.coroutines.flow", "stateIn"))
-                                        .indent()
-                                        .addStatement("initialValue = ProjectionModel$name(),")
-                                        .addStatement("started = %M.Eagerly,", MemberName("kotlinx.coroutines.flow", "SharingStarted"))
-                                        .addStatement("scope = %M(coroutineContext),",
-                                            MemberName("kotlinx.coroutines", "CoroutineScope"),
-                                        )
-                                        .unindent()
-                                        .addStatement(")")
+                        .addSuperclassConstructorParameter("coroutineContext")
+                        .addFunction(
+                            FunSpec.builder("process")
+                                .addModifiers(KModifier.SUSPEND, KModifier.OVERRIDE)
+                                .addParameter(
+                                    ParameterSpec.builder("e", Message::class)
                                         .build()
+                                )
+                                .beginControlFlow("if (e is Event${eventName})")
+                                .addStatement("handle(e)")
+                                .endControlFlow()
+                                .build()
+                        )
+                        .build()
+                )
+                .build()
+        } + config.general.map {
+            FileSpec.builder(packageName, "${it}Chain")
+                .addType(
+                    TypeSpec.classBuilder("${it}Chain")
+                        .superclass(EventChain::class.asTypeName().parameterizedBy(ClassName(packageName, "Event$it")))
+                        .primaryConstructor(
+                            FunSpec.constructorBuilder()
+                                .addParameter(
+                                    "coroutineContext", CoroutineContext::class
+                                )
+                                .addParameters(
+                                    buildEventChains(config)
+                                        .first { l -> l.first().endsWith(it) }
+                                        .filter { it.startsWith("Event") }
+                                        .map {
+                                            it.split(".")[1]
+                                        }
+                                        .map {
+                                            ParameterSpec.builder("${it}Handler", ClassName(packageName, "Event${it}Handler")).build()
+                                        }
+                                )
+                                .addParameters(
+                                    buildEventChains(config)
+                                        .first { l -> l.first().endsWith(it) }
+                                        .filter { !it.startsWith("Event") }
+                                        .map {
+                                            it.split(".")[0]
+                                        }
+                                        .map {
+                                            ParameterSpec.builder("${it}ParameterHolder", ClassName(packageName, "${it}ParameterHolder")).build()
+                                        }
                                 )
                                 .build()
                         )
-                        .addFunction(
-                            FunSpec.builder("project")
-                               .addModifiers(KModifier.ABSTRACT)
-                               .addParameters(
-                                   params.map {
-                                       ParameterSpec.builder(it, castType(config.parameters[it]!!.type))
-                                           .build()
-                                   }
-                               )
-                               .returns(ClassName(packageName, "ProjectionModel$name"))
-                               .build()
+                        .addSuperclassConstructorParameter("coroutineContext = coroutineContext")
+                        .addSuperclassConstructorParameter("intentsHandlers = listOf(${buildEventChains(config)
+                            .first { l -> l.first().endsWith(it) }
+                            .filter { !it.startsWith("Event") }
+                            .joinToString(", ") {
+                                it.split(".")[0] + "ParameterHolder"
+                            }})")
+                        .addSuperclassConstructorParameter(
+                            "eventsSender = listOf(${
+                                buildEventChains(config)
+                                    .first { l -> l.first().endsWith(it) }
+                                    .filter { it.startsWith("Event") }
+                                    .joinToString(", ") {
+                                        "${it.split(".")[1]}Handler"
+                                    }
+                            })"
                         )
-                       /* .addProperty(
+                        .build()
+                )
+                .build()
+        }
+    }
+
+    private fun generateProjections(
+        config: ConfigSchema,
+        packageName: String
+    ) = config.projection.map { (name, params) ->
+
+        FileSpec.builder(packageName, "Projection$name")
+            .addType(
+                TypeSpec.classBuilder("ProjectionModel$name")
+                    .addModifiers(KModifier.DATA)
+                    .primaryConstructor(
+                        FunSpec.constructorBuilder()
+                            .addParameters(
+                                params.map {
+                                    ParameterSpec.builder(
+                                        it.name,
+                                        extractModelClass(it, config, packageName)
+                                    ).defaultValue(
+                                        extractDefaultValue(it, config)
+                                    ).build()
+                                }
+                            )
+                            .build()
+                    )
+                    .addProperties(
+                        params.map { s ->
+                            PropertySpec.builder(s.name, extractModelClass(s, config, packageName))
+                                .initializer(s.name)
+                                .build()
+                        }
+                    )
+                    .build()
+            )
+            .addType(
+                TypeSpec.classBuilder("Projection$name")
+                    .primaryConstructor(
+                        FunSpec.constructorBuilder()
+                            .addParameters(
+                                params.map {
+                                    ParameterSpec.builder(
+                                        it.name, ClassName(
+                                            packageName,
+                                            if (it.type == ProjectionSourceType.Param) "${it.name}ParameterHolder" else "Projection${it.name}"
+                                        )
+                                    )
+                                        .build()
+                                }
+                            )
+                            .addParameter("coroutineContext", CoroutineContext::class)
+                            .build()
+                    )
+                    .addModifiers(KModifier.ABSTRACT)
+                    .superclass(
+                        Projection::class.asTypeName().parameterizedBy(
+                            ClassName(packageName, "ProjectionModel$name")
+                        )
+                    )
+                    .addProperty(
+                        PropertySpec.builder(
+                            "flow",
+                            StateFlow::class.asTypeName().parameterizedBy(
+                                ClassName(packageName, "ProjectionModel$name")
+                            )
+                        )
+                            .addModifiers(KModifier.OVERRIDE)
+                            .initializer(
+                                //"MutableStateFlow(ProjectionModel$name())"
+                                CodeBlock.builder()
+                                    .addStatement(
+                                        "%M(",
+                                        MemberName("kotlinx.coroutines.flow", "combine")
+                                    )
+                                    .indent()
+                                    .addStatement(
+                                        params.joinToString(", ") { "${it.name}.flow" }
+                                    )
+                                    .unindent()
+                                    .addStatement(") { ${params.indices.joinToString(separator = ", ") { "t$it" }} ->")
+                                    .indent()
+                                    .addStatement("project(${params.indices.joinToString(separator = ", ") { "t$it" }})")
+                                    .unindent()
+                                    .addStatement("}")
+                                    .addStatement(
+                                        ".%M(",
+                                        MemberName("kotlinx.coroutines.flow", "stateIn")
+                                    )
+                                    .indent()
+                                    .addStatement("initialValue = ProjectionModel$name(),")
+                                    .addStatement(
+                                        "started = %M.Eagerly,",
+                                        MemberName("kotlinx.coroutines.flow", "SharingStarted")
+                                    )
+                                    .addStatement(
+                                        "scope = %M(coroutineContext),",
+                                        MemberName("kotlinx.coroutines", "CoroutineScope"),
+                                    )
+                                    .unindent()
+                                    .addStatement(")")
+                                    .build()
+                            )
+                            .build()
+                    )
+                    .addFunction(
+                        FunSpec.builder("project")
+                            .addModifiers(KModifier.ABSTRACT)
+                            .addParameters(
+                                params.map {
+                                    ParameterSpec.builder(
+                                        it.name,
+                                        extractModelClass(it, config, packageName)
+                                    ).build()
+                                }
+                            )
+                            .returns(ClassName(packageName, "ProjectionModel$name"))
+                            .build()
+                    )
+                    /* .addProperty(
                             PropertySpec.builder(
                                 "flow",
                                 StateFlow::class.asTypeName().parameterizedBy(
@@ -218,20 +388,20 @@ class ParametersGenerator {
                                 .addModifiers(KModifier.OVERRIDE)
                                 .build()
                         )*/
-                        .addProperty(
-                            PropertySpec.builder(
-                                "value",
-                                ClassName(packageName, "ProjectionModel$name")
-                            )
-                                .getter(
-                                    FunSpec.getterBuilder()
-                                        .addCode("return flow.value")
-                                        .build()
-                                )
-                                .addModifiers(KModifier.OVERRIDE)
-                                .build()
+                    .addProperty(
+                        PropertySpec.builder(
+                            "value",
+                            ClassName(packageName, "ProjectionModel$name")
                         )
-                        /*.addInitializerBlock(
+                            .getter(
+                                FunSpec.getterBuilder()
+                                    .addCode("return flow.value")
+                                    .build()
+                            )
+                            .addModifiers(KModifier.OVERRIDE)
+                            .build()
+                    )
+                    /*.addInitializerBlock(
                             CodeBlock.builder()
                                 .beginControlFlow(
                                     "%M(%M.Default).%M",
@@ -254,18 +424,79 @@ class ParametersGenerator {
                                 .endControlFlow()
                                 .build()
                         )*/
-                        .build()
-                )
-                .build()
-        }
+                    .build()
+            )
+            .build()
+    }
+
+    private fun extractDefaultValue(
+        it: ProjectionSource,
+        config: ConfigSchema
+    ) = if (it.type == ProjectionSourceType.Param) {
+        extractParamDefaultValue(config, it)
+    } else {
+        "ProjectionModel${it.name}()"
+    }
+
+    private fun extractParamDefaultValue(
+        config: ConfigSchema,
+        it: ProjectionSource
+    ) = if (config.parameters[it.name]!!.type == "string") {
+        "\"${config.parameters[it.name]!!.initial}\""
+    } else {
+        config.parameters[it.name]!!.initial
+    }
+
+    private fun extractModelClass(
+        it: ProjectionSource,
+        config: ConfigSchema,
+        packageName: String
+    ) = if (it.type == ProjectionSourceType.Param) {
+        castType(config.parameters[it.name]!!.type).asTypeName()
+    } else {
+        ClassName(packageName, "ProjectionModel${it.name}")
     }
 }
 
-fun castType(type: String) = when(type) {
+fun castType(type: String) = when (type) {
     "integer" -> Int::class
     "string" -> String::class
     "boolean" -> Boolean::class
     "double" -> Double::class
     "long" -> Long::class
     else -> throw IllegalArgumentException()
+}
+
+fun buildEventChains(metadata: ConfigSchema): List<List<String>> {
+    val chains = mutableListOf<List<String>>()
+
+    // Для каждого события строим цепочки
+    metadata.events.keys.forEach { eventName ->
+        buildChainsRecursive(eventName, metadata, mutableListOf(), chains)
+    }
+
+    return chains
+}
+
+private fun buildChainsRecursive(
+    currentHandler: String,
+    metadata: ConfigSchema,
+    currentChain: MutableList<String>,
+    resultChains: MutableList<List<String>>
+) {
+
+
+    // Если это событие (Event), обрабатываем его returns
+    if (currentHandler in metadata.events) {
+        currentChain.add("Event.$currentHandler")
+        val event = metadata.events[currentHandler]!!
+        event.returns.forEach { handler ->
+            buildChainsRecursive(handler.name, metadata, currentChain.toMutableList(), resultChains)
+        }
+    }
+    // Если это intent (Param), цепочка завершена
+    else {
+        currentChain.add(currentHandler)
+        resultChains.add(currentChain)
+    }
 }

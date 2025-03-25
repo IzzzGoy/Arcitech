@@ -12,6 +12,7 @@ interface Parameter<S: Any> {
 
 interface EventHandler<E: Message> {
     suspend fun handle(e: E)
+    suspend fun process(e: Message)
 }
 
 interface IntentHandler<E: Message.Intent> : EventHandler<E>

@@ -31,9 +31,61 @@
           }
         }
       }
+    },
+    "IntHolder" : {
+      "type": "integer",
+      "initial": "55",
+      "intents": {
+        "Set" : {
+          "args": {
+            "text": {
+              "type": "integer"
+            }
+          }
+        }
+      }
     }
   },
   "projection": {
-    "GenericModel" : ["Counter", "StringHolder"]
-  }
+    "GenericModel" : [
+      {
+        "name" : "Counter",
+        "type" : "Param"
+      },
+      {
+        "name" : "StringHolder",
+        "type" : "Param"
+      }
+    ],
+    "Combine" : [
+      {
+        "name" : "Counter",
+        "type" : "Param"
+      },
+      {
+        "name" : "GenericModel",
+        "type" : "Projection"
+      },
+      {
+        "name" : "StringHolder",
+        "type" : "Param"
+      }
+    ]
+  },
+  "events" : {
+    "TestEvent": {
+      "args": {
+        "value": {
+          "type": "integer"
+        }
+      },
+      "returns": [
+        {
+          "type": "Param",
+          "name": "Counter.Add"
+        }
+      ]
+    }
+  },
+  "general": ["TestEvent"]
 }
