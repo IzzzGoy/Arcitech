@@ -239,7 +239,7 @@ class ContainerBuilder<E : Message.Event, S : Any, I : Message.Intent>(
             if (eventClass.isInstance(event)) {
                 handler(
                     event as? E
-                        ?: throw IllegalArgumentException("Expected $eventClass, but received ${event::class.java.simpleName}")
+                        ?: throw IllegalArgumentException("Expected $eventClass, but received ${event::class.simpleName}")
                 )
             }
         }
@@ -312,7 +312,7 @@ class ContainerBuilder<E : Message.Event, S : Any, I : Message.Intent>(
                     }
 
                     else -> {
-                        throw IllegalArgumentException("Expected Message.Event or Message.Intent, but received ${message::class.java.simpleName}")
+                        throw IllegalArgumentException("Expected Message.Event or Message.Intent, but received ${message::class.simpleName}")
                     }
                 }
 

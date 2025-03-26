@@ -1,8 +1,11 @@
 package parameter
 
 import container.Message
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlin.time.Duration
 
 interface Parameter<S: Any> {
     val value: S
@@ -10,14 +13,23 @@ interface Parameter<S: Any> {
     val flow: StateFlow<S>
 }
 
+data class PostExecMetadata<E: Message>(
+    val event: E,
+    val duration: Duration
+)
+
 interface EventHandler<E: Message> {
     suspend fun handle(e: E)
     suspend fun process(e: Message)
+
+    val postMetadata: Flow<PostExecMetadata<E>>
+        get() = emptyFlow()
 }
 
 interface IntentHandler<E: Message.Intent> : EventHandler<E>
 
-abstract class ParameterHolder<E: Message.Intent, S: Any>(initialValue: S) : Parameter<S>, IntentHandler<E> {
+abstract class ParameterHolder<E: Message.Intent, S: Any>(initialValue: S) : Parameter<S>,
+    IntentHandler<E> {
     private val _flow = MutableStateFlow(initialValue)
 
 

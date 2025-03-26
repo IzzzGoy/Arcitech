@@ -85,7 +85,16 @@
           "name": "Counter.Add"
         }
       ]
+    },
+    "AnotherEvent" : {
+      "args" : null,
+      "returns" : [
+        {
+          "type": "Event",
+          "name": "TestEvent"
+        }
+      ]
     }
   },
-  "general": ["TestEvent"]
+  "general": ["TestEvent", "AnotherEvent"]
 }

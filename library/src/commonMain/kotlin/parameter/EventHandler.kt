@@ -5,8 +5,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
+import kotlin.time.measureTime
 
 abstract class AbstractEventHandler<E: Message.Event>(
     coroutineContext: CoroutineContext
@@ -28,22 +30,43 @@ abstract class EventChain<E: Message.Event>(
     private val intentsHandlers: List<ParameterHolder<*, *>>,
     private val eventsSender: List<AbstractEventHandler<*>>,
     coroutineContext: CoroutineContext,
+    isDebug: Boolean,
 ): AutoCloseable {
     private val coroutineScope = CoroutineScope(coroutineContext)
 
     init {
+        if (isDebug) {
+            coroutineScope.launch {
+                (intentsHandlers + eventsSender).forEach {
+                    launch {
+                        it.postMetadata.collect {
+                            postMiddleware(it)
+                        }
+                    }
+                }
+            }
+        }
+
         coroutineScope.launch {
             eventsSender.forEach { sender ->
                 launch {
                     sender.events.collect { e ->
-                        (intentsHandlers + eventsSender).forEach {
-                            it.process(e)
+                        if (e is Message.Event) {
+                            (eventsSender).forEach {
+                                it.process(e)
+                            }
+                        } else if (e is Message.Intent) {
+                            intentsHandlers.forEach {
+                                it.process(e)
+                            }
                         }
                     }
                 }
             }
         }
     }
+
+    protected open fun postMiddleware(postExecMetadata: PostExecMetadata<*>) {}
 
     override fun close() {
         coroutineScope.cancel()

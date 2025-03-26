@@ -3,6 +3,8 @@ package org.example.architect.generator
 import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import container.Message
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.example.architect.models.ConfigSchema
 import org.example.architect.models.ProjectionSource
@@ -10,6 +12,7 @@ import org.example.architect.models.ProjectionSourceType
 import parameter.AbstractEventHandler
 import parameter.EventChain
 import parameter.ParameterHolder
+import parameter.PostExecMetadata
 import parameter.Projection
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
@@ -100,6 +103,34 @@ class ParametersGenerator {
                                     .build()
                             }
                         )
+                        .addProperty(
+                            PropertySpec.builder(
+                                "_postMetadata",
+                                MutableSharedFlow::class.asTypeName()
+                                    .parameterizedBy(
+                                        PostExecMetadata::class.asTypeName()
+                                            .parameterizedBy(
+                                                ClassName(packageName, "${classname}Intents")
+                                            )
+                                    )
+                            )
+                                .initializer("MutableSharedFlow()")
+                                .build()
+                        )
+                        .addProperty(
+                            PropertySpec.builder(
+                                "postMetadata",
+                                Flow::class.asTypeName()
+                                    .parameterizedBy(
+                                        PostExecMetadata::class.asTypeName()
+                                            .parameterizedBy(
+                                                ClassName(packageName, "${classname}Intents")
+                                            )
+                                    )
+                            ).addModifiers(KModifier.OVERRIDE)
+                                .initializer("_postMetadata")
+                                .build()
+                        )
                         .addFunction(
                             FunSpec.builder("handle")
                                 .addModifiers(KModifier.OVERRIDE, KModifier.SUSPEND)
@@ -127,9 +158,28 @@ class ParametersGenerator {
                                     ParameterSpec.builder("e", Message::class)
                                         .build()
                                 )
-                                .beginControlFlow("if (e is ${classname}Intents)")
-                                .addStatement("handle(e)")
-                                .endControlFlow()
+                                .addCode(
+                                    CodeBlock.builder()
+                                        .beginControlFlow("if (e is ${classname}Intents)")
+                                        .addStatement(
+                                            "%M {",
+                                            MemberName("kotlin.time", "measureTime")
+                                        )
+                                        .indent()
+                                        .addStatement("handle(e)")
+                                        .unindent()
+                                        .addStatement("}.also {")
+                                        .indent()
+                                        .addStatement(
+                                            "_postMetadata.emit(%M(e, it))",
+                                            MemberName("parameter", "PostExecMetadata")
+                                        )
+                                        .unindent()
+                                        .addStatement("}")
+                                        .endControlFlow()
+                                        .build()
+                                )
+
                                 .build()
                         )
                         .build()
@@ -182,12 +232,46 @@ class ParametersGenerator {
                         "Event${eventName}Handler"
                     )
                         .addModifiers(KModifier.ABSTRACT)
-                        .superclass(AbstractEventHandler::class.asTypeName().parameterizedBy(ClassName(packageName, "Event${eventName}")))
+                        .superclass(
+                            AbstractEventHandler::class.asTypeName()
+                                .parameterizedBy(ClassName(packageName, "Event${eventName}"))
+                        )
                         .primaryConstructor(
                             FunSpec.constructorBuilder()
                                 .addParameter(
-                                    ParameterSpec.builder("coroutineContext", CoroutineContext::class).build()
+                                    ParameterSpec.builder(
+                                        "coroutineContext",
+                                        CoroutineContext::class
+                                    ).build()
                                 ).build()
+                        )
+                        .addProperty(
+                            PropertySpec.builder(
+                                "_postMetadata",
+                                MutableSharedFlow::class.asTypeName()
+                                    .parameterizedBy(
+                                        PostExecMetadata::class.asTypeName()
+                                            .parameterizedBy(
+                                                ClassName(packageName, "Event$eventName")
+                                            )
+                                    )
+                            )
+                                .initializer("MutableSharedFlow()")
+                                .build()
+                        )
+                        .addProperty(
+                            PropertySpec.builder(
+                                "postMetadata",
+                                Flow::class.asTypeName()
+                                    .parameterizedBy(
+                                        PostExecMetadata::class.asTypeName()
+                                            .parameterizedBy(
+                                                ClassName(packageName, "Event$eventName")
+                                            )
+                                    )
+                            ).addModifiers(KModifier.OVERRIDE)
+                                .initializer("_postMetadata")
+                                .build()
                         )
                         .addSuperclassConstructorParameter("coroutineContext")
                         .addFunction(
@@ -197,9 +281,27 @@ class ParametersGenerator {
                                     ParameterSpec.builder("e", Message::class)
                                         .build()
                                 )
-                                .beginControlFlow("if (e is Event${eventName})")
-                                .addStatement("handle(e)")
-                                .endControlFlow()
+                                .addCode(
+                                    CodeBlock.builder()
+                                        .beginControlFlow("if (e is Event${eventName})")
+                                        .addStatement(
+                                            "%M {",
+                                            MemberName("kotlin.time", "measureTime")
+                                        )
+                                        .indent()
+                                        .addStatement("handle(e)")
+                                        .unindent()
+                                        .addStatement("}.also {")
+                                        .indent()
+                                        .addStatement(
+                                            "_postMetadata.emit(%M(e, it))",
+                                            MemberName("parameter", "PostExecMetadata")
+                                        )
+                                        .unindent()
+                                        .addStatement("}")
+                                        .endControlFlow()
+                                        .build()
+                                )
                                 .build()
                         )
                         .build()
@@ -209,12 +311,14 @@ class ParametersGenerator {
             FileSpec.builder(packageName, "${it}Chain")
                 .addType(
                     TypeSpec.classBuilder("${it}Chain")
-                        .superclass(EventChain::class.asTypeName().parameterizedBy(ClassName(packageName, "Event$it")))
+                        .addModifiers(KModifier.ABSTRACT)
+                        .superclass(
+                            EventChain::class.asTypeName()
+                                .parameterizedBy(ClassName(packageName, "Event$it"))
+                        )
                         .primaryConstructor(
                             FunSpec.constructorBuilder()
-                                .addParameter(
-                                    "coroutineContext", CoroutineContext::class
-                                )
+                                .addParameter("coroutineContext", CoroutineContext::class)
                                 .addParameters(
                                     buildEventChains(config)
                                         .first { l -> l.first().endsWith(it) }
@@ -223,7 +327,10 @@ class ParametersGenerator {
                                             it.split(".")[1]
                                         }
                                         .map {
-                                            ParameterSpec.builder("${it}Handler", ClassName(packageName, "Event${it}Handler")).build()
+                                            ParameterSpec.builder(
+                                                "${it}Handler",
+                                                ClassName(packageName, "Event${it}Handler")
+                                            ).build()
                                         }
                                 )
                                 .addParameters(
@@ -234,18 +341,29 @@ class ParametersGenerator {
                                             it.split(".")[0]
                                         }
                                         .map {
-                                            ParameterSpec.builder("${it}ParameterHolder", ClassName(packageName, "${it}ParameterHolder")).build()
+                                            ParameterSpec.builder(
+                                                "${it}ParameterHolder",
+                                                ClassName(packageName, "${it}ParameterHolder")
+                                            ).build()
                                         }
+                                )
+                                .addParameter(
+                                    ParameterSpec.builder("isDebug", Boolean::class)
+                                        .defaultValue("true").build()
                                 )
                                 .build()
                         )
                         .addSuperclassConstructorParameter("coroutineContext = coroutineContext")
-                        .addSuperclassConstructorParameter("intentsHandlers = listOf(${buildEventChains(config)
-                            .first { l -> l.first().endsWith(it) }
-                            .filter { !it.startsWith("Event") }
-                            .joinToString(", ") {
-                                it.split(".")[0] + "ParameterHolder"
-                            }})")
+                        .addSuperclassConstructorParameter("isDebug = isDebug")
+                        .addSuperclassConstructorParameter("intentsHandlers = listOf(${
+                            buildEventChains(config)
+                                .first { l -> l.first().endsWith(it) }
+                                .filter { !it.startsWith("Event") }
+                                .joinToString(", ") {
+                                    it.split(".")[0] + "ParameterHolder"
+                                }
+                        })"
+                        )
                         .addSuperclassConstructorParameter(
                             "eventsSender = listOf(${
                                 buildEventChains(config)
@@ -327,7 +445,6 @@ class ParametersGenerator {
                         )
                             .addModifiers(KModifier.OVERRIDE)
                             .initializer(
-                                //"MutableStateFlow(ProjectionModel$name())"
                                 CodeBlock.builder()
                                     .addStatement(
                                         "%M(",
@@ -377,17 +494,6 @@ class ParametersGenerator {
                             .returns(ClassName(packageName, "ProjectionModel$name"))
                             .build()
                     )
-                    /* .addProperty(
-                            PropertySpec.builder(
-                                "flow",
-                                StateFlow::class.asTypeName().parameterizedBy(
-                                    ClassName(packageName, "ProjectionModel$name")
-                                )
-                            )
-                                .initializer("_flow")
-                                .addModifiers(KModifier.OVERRIDE)
-                                .build()
-                        )*/
                     .addProperty(
                         PropertySpec.builder(
                             "value",
@@ -401,29 +507,6 @@ class ParametersGenerator {
                             .addModifiers(KModifier.OVERRIDE)
                             .build()
                     )
-                    /*.addInitializerBlock(
-                            CodeBlock.builder()
-                                .beginControlFlow(
-                                    "%M(%M.Default).%M",
-                                    MemberName("kotlinx.coroutines", "CoroutineScope"),
-                                    MemberName("kotlinx.coroutines", "Dispatchers"),
-                                    MemberName("kotlinx.coroutines", "launch"),
-                                )
-                                .addStatement("%M(", MemberName("kotlinx.coroutines.flow", "combine"))
-                                .indent()
-                                .addStatement(
-                                    params.joinToString(", ") { "$it.flow" }
-                                )
-                                .unindent()
-                                .addStatement(") { ${params.indices.joinToString(separator = ", ") { "t$it" }} ->")
-                                .indent()
-                                .addStatement("_flow.value = project(${params.indices.joinToString(separator = ", ") { "t$it" }})")
-                                .unindent()
-                                .addStatement("}")
-                                .addStatement(".%M()", MemberName("kotlinx.coroutines.flow", "collect"))
-                                .endControlFlow()
-                                .build()
-                        )*/
                     .build()
             )
             .build()

@@ -52,5 +52,5 @@ data class ReturnsDefinition(
 
 @Serializable
 enum class EventReturnsType {
-    Param, Projection
+    Param, Event
 }
