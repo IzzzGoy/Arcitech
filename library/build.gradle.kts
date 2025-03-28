@@ -1,14 +1,17 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 
 plugins {
     kotlin("multiplatform") version "2.1.0"
     id("com.android.library")
+    id("com.vanniktech.maven.publish")
     `maven-publish`
+    signing
 }
 
-group = "org.example"
-version = "1.0-SNAPSHOT"
+group = "com.ndmatrix.parameter"
+version = "1.0.1"
 
 kotlin {
 
@@ -16,6 +19,7 @@ kotlin {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
         }
+        publishLibraryVariants("release")
     }
 
     listOf(
@@ -28,7 +32,9 @@ kotlin {
         }
     }
 
-    jvm()
+    jvm {
+
+    }
 
     sourceSets {
         commonMain {
@@ -55,10 +61,10 @@ kotlin {
 
 android {
     compileSdk = 31
-    namespace = "com.homecraft.familylist"
+    namespace = "com.ndmatrix.parameter"
 
     defaultConfig {
-        minSdk = 24
+        minSdk = 23
     }
 
     compileOptions {
@@ -67,6 +73,25 @@ android {
     }
 }
 
+val secretPropsFile = project.rootProject.file("local.properties")
+if (secretPropsFile.exists()) {
+    secretPropsFile.reader().use {
+        Properties().apply {
+            load(it)
+        }
+    }.onEach { (name, value) ->
+        ext[name.toString()] = value
+    }
+} else {
+    ext["signing.keyId"] = System.getenv("SIGNING_KEY_ID")
+    ext["signing.password"] = System.getenv("SIGNING_PASSWORD")
+    ext["signing.secretKeyRingFile"] = System.getenv("SIGNING_SECRET_KEY_RING_FILE")
+    ext["ossrhUsername"] = System.getenv("OSSRH_USERNAME")
+    ext["ossrhPassword"] = System.getenv("OSSRH_PASSWORD")
+}
+
+fun getExtraString(name: String) = ext[name]?.toString()
+
 val javadocJar by tasks.registering(Jar::class) {
     archiveClassifier.set("javadoc")
 }
@@ -74,19 +99,24 @@ val javadocJar by tasks.registering(Jar::class) {
 publishing {
     publications {
         withType<MavenPublication> {
-            groupId = "org.example"
-            artifactId = project.name
-            version = "1.0-SNAPSHOT"
-            println("$groupId:$artifactId:$version")
+            groupId = "com.ndmatrix.parameter"
+            artifactId = when (name) {
+                "androidRelease" -> "${project.name}-android"
+                "jvm" -> "${project.name}-jvm"
+                "iosX64" -> "${project.name}-iosX64"
+                "iosArm64" -> "${project.name}-iosArm64"
+                "iosSimulatorArm64" -> "${project.name}-iosSimulatorArm64"
+                else -> project.name
+            }
+            version = "1.0.1"
 
             // Stub javadoc.jar artifact
-            artifact(javadocJar.get())
 
             // Provide artifacts information requited by Maven Central
             pom {
                 name.set("NDM Achitect")
                 description.set("Architecture component system")
-                url.set("https://github.com/IzzzGoy/event-thread")
+                url.set("https://github.com/IzzzGoy/Arcitech")
 
                 licenses {
                     license {
@@ -102,12 +132,30 @@ publishing {
                     }
                 }
                 scm {
-                    url.set("https://github.com/IzzzGoy/event-thread")
+                    url.set("https://github.com/IzzzGoy/Arcitech")
                 }
             }
         }
     }
     repositories {
+        repositories {
+            maven {
+                name = "sonatype"
+                setUrl("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
+                credentials {
+                    username = getExtraString("ossrhUsername")
+                    password = getExtraString("ossrhPassword")
+                }
+            }
+        }
         mavenLocal()
     }
+}
+
+signing {
+    sign(publishing.publications)
+}
+
+tasks.withType<AbstractPublishToMaven>().configureEach {
+    dependsOn(tasks.withType<Sign>())
 }

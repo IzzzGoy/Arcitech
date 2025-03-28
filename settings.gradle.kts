@@ -21,6 +21,4 @@ dependencyResolutionManagement {
 }
 
 include(":library")
-//includeBuild("plugin")
-include(":target")
 
