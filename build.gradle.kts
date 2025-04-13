@@ -5,3 +5,6 @@ plugins {
     id("com.android.library") version "8.8.1" apply false
     id("com.vanniktech.maven.publish") version "0.30.0" apply false
 }
+
+version = "1.0.0"
+group = "io.github.izzzgoy"

@@ -5,7 +5,6 @@ import java.util.Properties
 plugins {
     kotlin("multiplatform") version "2.1.0"
     id("com.android.library")
-    id("com.vanniktech.maven.publish")
     `maven-publish`
     signing
 }
@@ -99,7 +98,7 @@ val javadocJar by tasks.registering(Jar::class) {
 publishing {
     publications {
         withType<MavenPublication> {
-            groupId = "com.ndmatrix.parameter"
+            groupId = "io.github.izzzgoy"
             artifactId = when (name) {
                 "androidRelease" -> "${project.name}-android"
                 "jvm" -> "${project.name}-jvm"
@@ -111,7 +110,7 @@ publishing {
             version = "1.0.1"
 
             // Stub javadoc.jar artifact
-
+            artifact(tasks["javadocJar"])
             // Provide artifacts information requited by Maven Central
             pom {
                 name.set("NDM Achitect")
@@ -138,14 +137,12 @@ publishing {
         }
     }
     repositories {
-        repositories {
-            maven {
-                name = "sonatype"
-                setUrl("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
-                credentials {
-                    username = getExtraString("ossrhUsername")
-                    password = getExtraString("ossrhPassword")
-                }
+        maven {
+            name = "sonatype"
+            setUrl("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
+            credentials {
+                username = getExtraString("ossrhUsername")
+                password = getExtraString("ossrhPassword")
             }
         }
         mavenLocal()

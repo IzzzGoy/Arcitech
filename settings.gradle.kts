@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-include(":library")
+include(":ndimmatrix")
 
