@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlin.time.Duration
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 interface Parameter<S: Any> {
     val value: S
@@ -12,9 +14,12 @@ interface Parameter<S: Any> {
     val flow: StateFlow<S>
 }
 
+@OptIn(ExperimentalUuidApi::class)
 data class PostExecMetadata<E: Message>(
     val event: E,
-    val duration: Duration
+    val duration: Duration,
+    val parentId: Uuid?,
+    val currentId: Uuid,
 )
 
 interface EventHandler<E: Message> {

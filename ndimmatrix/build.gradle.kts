@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.ndmatrix.parameter"
-version = "1.0.1"
+version = "1.0.2"
 
 kotlin {
 
@@ -107,7 +107,7 @@ publishing {
                 "iosSimulatorArm64" -> "${project.name}-iosSimulatorArm64"
                 else -> project.name
             }
-            version = "1.0.1"
+            version = "1.0.2"
 
             // Stub javadoc.jar artifact
             artifact(tasks["javadocJar"])

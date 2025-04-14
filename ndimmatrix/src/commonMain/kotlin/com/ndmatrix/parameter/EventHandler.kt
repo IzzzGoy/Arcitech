@@ -1,28 +1,52 @@
 package com.ndmatrix.parameter
 
+import com.ndmatrix.parameter.CallMetadata.Companion.CallMetadataKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
+class CallMetadata @OptIn(ExperimentalUuidApi::class) constructor(
+    val parentId: Uuid? = null,
+    val currentId: Uuid = Uuid.random(),
+): CoroutineContext.Element {
+    companion object {
+        val CallMetadataKey = object : CoroutineContext.Key<CallMetadata>{}
+    }
+    override val key: CoroutineContext.Key<*>
+        get() = CallMetadataKey
+}
+
+
+@OptIn(ExperimentalUuidApi::class)
 abstract class AbstractEventHandler<E: Message.Event>(
     coroutineContext: CoroutineContext
 ) : EventHandler<E> {
-    private val _events: MutableSharedFlow<Message> = MutableSharedFlow()
-    val events = _events.asSharedFlow()
-
     private val coroutineScope = CoroutineScope(coroutineContext)
+    private val _events: MutableSharedFlow<Pair<Uuid, Message>> = MutableSharedFlow()
+    val events = _events.map { it.second }.shareIn(coroutineScope, SharingStarted.Eagerly)
+    val rowEvents = _events.asSharedFlow()
+
+
 
     protected suspend fun returnEvent(block: () -> Message) {
+        val id = coroutineContext[CallMetadataKey]!!.currentId
         coroutineScope.launch {
-            _events.emit(block())
+            _events.emit(id to block())
         }
     }
 
 }
 
+@OptIn(ExperimentalUuidApi::class)
 abstract class EventChain<E: Message.Event>(
     private val intentsHandlers: List<ParameterHolder<*, *>>,
     private val eventsSender: List<AbstractEventHandler<*>>,
@@ -47,14 +71,19 @@ abstract class EventChain<E: Message.Event>(
         coroutineScope.launch {
             eventsSender.forEach { sender ->
                 launch {
-                    sender.events.collect { e ->
+                    sender.rowEvents.collect { (id, e) ->
                         if (e is Message.Event) {
                             (eventsSender).forEach {
-                                it.process(e)
+                                launch(CallMetadata(id, Uuid.random())) {
+                                    it.process(e)
+                                }
+
                             }
                         } else if (e is Message.Intent) {
                             intentsHandlers.forEach {
-                                it.process(e)
+                                launch(CallMetadata(id, Uuid.random())) {
+                                    it.process(e)
+                                }
                             }
                         }
                     }
@@ -70,7 +99,7 @@ abstract class EventChain<E: Message.Event>(
     }
 
     fun general(e: E) {
-         coroutineScope.launch {
+         coroutineScope.launch(CallMetadata(null, Uuid.random())) {
              (intentsHandlers + eventsSender).forEach {
                  it.process(e)
              }
