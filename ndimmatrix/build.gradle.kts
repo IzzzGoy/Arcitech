@@ -3,14 +3,14 @@ import java.util.Properties
 
 
 plugins {
-    kotlin("multiplatform") version "2.1.0"
+    kotlin("multiplatform")
     id("com.android.library")
     `maven-publish`
     signing
 }
 
 group = "com.ndmatrix.parameter"
-version = "1.0.2"
+version = "1.0.3"
 
 kotlin {
 
@@ -38,7 +38,7 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
+                api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
             }
         }
 
@@ -107,7 +107,7 @@ publishing {
                 "iosSimulatorArm64" -> "${project.name}-iosSimulatorArm64"
                 else -> project.name
             }
-            version = "1.0.2"
+            version = "1.0.3"
 
             // Stub javadoc.jar artifact
             artifact(tasks["javadocJar"])
