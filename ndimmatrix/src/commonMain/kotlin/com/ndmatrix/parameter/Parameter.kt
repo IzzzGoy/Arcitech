@@ -11,25 +11,34 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 /**
- * Base for all parameters.
+ * Represents a reactive parameter holding state of type [S].
  *
- * @property value current value of Parameter.
- * @property flow flow of parameter. May used to observe parameters flow.
- * */
+ * Parameters expose a read-only [value] and a [flow] to observe state changes.
+ *
+ * @param S the type of the parameter's state.
+ */
 interface Parameter<S: Any> {
+    /**
+     * Current value of the parameter.
+     */
     val value: S
         get() = flow.value
+
+    /**
+     * StateFlow emitting current and future values of the parameter.
+     */
     val flow: StateFlow<S>
 }
 
 /**
- * Represents info about event execution metrics.
+ * Execution metadata produced after handling a message.
  *
- * @param event the event object to which the metadata pertains.
- * @param duration duration of event execution.
- * @param parentId id of parent event in execution sequence/tree.
- * @param currentId id of current event.
- * */
+ * @param E the type of the message processed.
+ * @property event the message instance that was handled.
+ * @property duration the time duration taken to process the event.
+ * @property parentId the UUID of the parent event in the execution tree, or null if root.
+ * @property currentId the UUID assigned to this event execution.
+ */
 @OptIn(ExperimentalUuidApi::class)
 data class PostExecMetadata<E: Message>(
     val event: E,
@@ -39,49 +48,71 @@ data class PostExecMetadata<E: Message>(
 )
 
 /**
- * A base class that represents an entity that can handle events.
+ * Base class for all entities capable of handling [Message] instances.
  *
- * @property _postMetadata inner flow with execution event metadata.
- * @property postMetadata flow with execution event metadata.
- * */
+ * Provides a flow of post-execution metadata for observability and debugging.
+ *
+ * @param E the type of [Message] this handler processes.
+ */
 abstract class EventHandler<E: Message> {
-
+    /**
+     * Internal mutable flow collecting metadata after each message is handled.
+     */
     protected val _postMetadata: MutableSharedFlow<PostExecMetadata<*>> = MutableSharedFlow()
+
+    /**
+     * Public shared flow emitting metadata after each message handling.
+     */
     val postMetadata: SharedFlow<PostExecMetadata<*>> = _postMetadata.asSharedFlow()
 
     /**
-     * Optimized handler for [EventHandler] event type.
-     * */
+     * Handles a message of type [E] with optimized logic.
+     *
+     * @param e the message instance to handle.
+     */
     abstract suspend fun handle(e: E)
-    /**
-     * Handler for any event type. Uses in chains to avoid problems with type projections.
-     * */
-    abstract suspend fun process(e: Message)
 
+    /**
+     * Generic entry point for processing any [Message].
+     *
+     * Used to unify handling in event chains and avoid type projection issues.
+     *
+     * @param e the message to process.
+     */
+    abstract suspend fun process(e: Message)
 }
 
 /**
- * Class-marker, that uses to separate [ParameterHolders] as special EventHandler.
- * */
+ * Marker class for [EventHandler]s that process [Message.Intent] instances.
+ *
+ * Differentiates intent handlers from general event handlers.
+ *
+ * @param E the specific subtype of [Message.Intent] this handler processes.
+ */
 abstract class IntentHandler<E: Message.Intent> : EventHandler<E>()
 
 /**
- * Base implementation of [Parameter].
+ * Base implementation of [Parameter], combining state management and intent handling.
  *
- * @property _flow inner representation [Parameter.flow].
- * @property flow represents actual [Parameter.flow].
- * @property value represents actual [Parameter.value].
- * */
-abstract class ParameterHolder<E: Message.Intent, S: Any>(initialValue: S) : Parameter<S>,
+ * ParameterHolders react to intents of type [E] to update their internal state of type [S].
+ *
+ * @param E the intent message type used to mutate the parameter state.
+ * @param S the type of the parameter's state.
+ * @param initialValue the initial state value for the parameter.
+ */
+abstract class ParameterHolder<E: Message.Intent, S: Any>(initialValue: S) :
+    Parameter<S>,
     IntentHandler<E>() {
+
     private val _flow = MutableStateFlow(initialValue)
     override val flow: StateFlow<S> = _flow.asStateFlow()
-
     override val value: S get() = flow.value
 
     /**
-     * Method to update Parameter state.
-     * */
+     * Updates the parameter's state to the new [value].
+     *
+     * @param value the new state to set.
+     */
     protected fun update(value: S) {
         _flow.value = value
     }
