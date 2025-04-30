@@ -15,104 +15,135 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 /**
- * Represents metadata of current event execution.
+ * Contains metadata for the current event execution, enabling tracking of
+ * nested call hierarchies.
  *
- * @property parentId id of parent event. null only on start event chain.
- * @property currentId id of current event in scope of current execution.
- * */
-class CallMetadata @OptIn(ExperimentalUuidApi::class) constructor(
+ * @property parentId the UUID of the parent event, or null if this is the root event.
+ * @property currentId the UUID of the current event within the execution chain.
+ *
+ * Stored in the [CoroutineContext] to propagate identifiers between coroutines.
+ */
+@OptIn(ExperimentalUuidApi::class)
+class CallMetadata(
     val parentId: Uuid? = null,
     val currentId: Uuid = Uuid.random(),
 ) : CoroutineContext.Element {
     companion object {
+        /**
+         * Key for storing and retrieving [CallMetadata] from the [CoroutineContext].
+         */
         val CallMetadataKey = object : CoroutineContext.Key<CallMetadata> {}
     }
 
     override val key: CoroutineContext.Key<*>
+        /**
+         * Returns the key associated with this context element.
+         */
         get() = CallMetadataKey
 }
 
 /**
- * Base event handle infrastructure. Contains routine code of event handler.
+ * Abstract base class for event handlers, providing infrastructure
+ * to emit child events along with metadata.
  *
- * @param coroutineContext context to observe execution results.
+ * @param E the type of input [Message.Event].
+ * @param coroutineContext the coroutine context used for subscribing to output events.
  *
- * @property coroutineScope scope to observe execution results.
- * @property _events inner flow of output events data stream.
- * @property events flow of output events data stream. Contains only events, without any other metadata.
- * @property rawEvents flow of output events data stream. Contains events with parent id.
- * */
+ * @property events a _hot_ [SharedFlow] of child events without metadata.
+ * @property rawEvents a [SharedFlow] of pairs (parentId, Message) for internal routing.
+ */
 @OptIn(ExperimentalUuidApi::class)
 abstract class AbstractEventHandler<E : Message.Event>(
     coroutineContext: CoroutineContext
 ) : EventHandler<E>() {
-    private val coroutineScope = CoroutineScope(coroutineContext)
-    private val _events: MutableSharedFlow<Pair<Uuid, Message>> = MutableSharedFlow()
-    val events = _events.map { it.second }.shareIn(coroutineScope, SharingStarted.Eagerly)
+    private val coroutineScope: CoroutineScope = CoroutineScope(coroutineContext)
+    private val _events = MutableSharedFlow<Pair<Uuid, Message>>()
+
+    /**
+     * A flow of child events without metadata.
+     */
+    val events = _events
+        .map { it.second }
+        .shareIn(coroutineScope, SharingStarted.Eagerly)
+
+    /**
+     * A flow of child events paired with their parent ID.
+     */
     val rawEvents = _events.asSharedFlow()
 
     /**
-     * Emits event, created by given lambda, to output events stream.
+     * Emits a new event into the outgoing events flow.
      *
-     * @param block lambda-factory of output event.
-     * */
+     * @param block a factory lambda that produces a [Message] instance.
+     * @throws IllegalStateException if [CallMetadata] is not present in the context.
+     */
     protected suspend fun returnEvent(block: () -> Message) {
-        val id = coroutineContext[CallMetadataKey]!!.currentId
+        val metadata = coroutineContext[CallMetadataKey]
+            ?: error("CallMetadata not found in CoroutineContext")
+        val parentId = metadata.currentId
+
+        // Launch a new coroutine for emission to avoid blocking the handler
         coroutineScope.launch {
-            _events.emit(id to block())
+            _events.emit(parentId to block())
         }
     }
-
 }
 
 /**
- * EventChain represent sequence/tree of event handlers.
+ * Manages sequential or parallel execution of event handlers and parameter holders
+ * as a tree or chain layout.
  *
- * @param intentsHandlers list of [ParameterHolder]. They can`t produce any event.
- * @param eventsSender list of [EventHandler]. They can produce any event.
- * This separation uses for inner optimizations.
- * @param coroutineContext context of events execution.
- * @param isDebug enables some debug options, like observing post execution metadata.
+ * @param E the type of the starting [Message.Event] that triggers the chain.
+ * @param intentsHandlers a list of [ParameterHolder] instances handling [Message.Intent]s.
+ * @param eventsSender a list of [AbstractEventHandler] instances generating child events.
+ * @param coroutineContext the coroutine context for the entire chain execution.
+ * @param isDebug flag to enable collection of [postMetadata] for debugging purposes.
  *
- * @property coroutineScope scope of events execution.
- * */
+ * @property coroutineScope the internal [CoroutineScope] for launching chain coroutines.
+ */
 @OptIn(ExperimentalUuidApi::class)
 abstract class EventChain<E : Message.Event>(
     private val intentsHandlers: List<ParameterHolder<*, *>>,
     private val eventsSender: List<AbstractEventHandler<*>>,
     coroutineContext: CoroutineContext,
-    isDebug: Boolean,
+    isDebug: Boolean
 ) : AutoCloseable {
-    private val coroutineScope = CoroutineScope(coroutineContext)
+    private val coroutineScope: CoroutineScope = CoroutineScope(coroutineContext)
 
     init {
         if (isDebug) {
+            // Subscribe to post-execution metadata for all handlers for debugging
             coroutineScope.launch {
-                (intentsHandlers + eventsSender).forEach {
+                (intentsHandlers + eventsSender).forEach { handler ->
                     launch {
-                        it.postMetadata.collect {
-                            postMiddleware(it)
+                        handler.postMetadata.collect { meta ->
+                            postMiddleware(meta)
                         }
                     }
                 }
             }
         }
 
+        // Main routing: listen to rawEvents from all event senders
         coroutineScope.launch {
             eventsSender.forEach { sender ->
                 launch {
-                    sender.rawEvents.collect { (id, e) ->
-                        if (e is Message.Event) {
-                            (eventsSender).forEach {
-                                launch(CallMetadata(id, Uuid.random())) {
-                                    it.process(e)
+                    sender.rawEvents.collect { (parentId, message) ->
+                        when (message) {
+                            is Message.Event -> {
+                                // Forward events to all other event senders
+                                eventsSender.forEach { target ->
+                                    launch(CallMetadata(parentId, Uuid.random())) {
+                                        target.process(message)
+                                    }
                                 }
-
                             }
-                        } else if (e is Message.Intent) {
-                            intentsHandlers.forEach {
-                                launch(CallMetadata(id, Uuid.random())) {
-                                    it.process(e)
+                            is Message.Intent -> {
+                                // Forward intents to all parameter holders
+                                intentsHandlers.forEach { holder ->
+                                    launch(CallMetadata(parentId, Uuid.random())) {
+                                        holder.process(message)
+                                    }
                                 }
                             }
                         }
@@ -123,28 +154,30 @@ abstract class EventChain<E : Message.Event>(
     }
 
     /**
-     * Process post execution metadata. May use to logs, analytics, debug, etc.
+     * Hook for processing execution metadata after each event.
+     * Can be overridden for logging, analytics, etc.
      *
-     * @param postExecMetadata post execution metadata of some event.
-     * */
+     * @param postExecMetadata the resulting metadata of the event execution.
+     */
     protected open fun postMiddleware(postExecMetadata: PostExecMetadata<*>) {}
 
     /**
-     * Close and terminate chain execution. May be auto-invoke by GC by [AutoCloseable].
-     * */
+     * Closes the chain, cancelling all running coroutines.
+     */
     override fun close() {
         coroutineScope.cancel()
     }
 
     /**
-     * Start event chain by specified start event.
+     * Starts the event processing chain with the specified start event.
      *
-     * @param start event. [E] must be only [Message.Event]. Intent can`t start chain at this project state.
-     * */
+     * @param e the initial event to start the chain.
+     */
     fun general(e: E) {
         coroutineScope.launch(CallMetadata(null, Uuid.random())) {
-            (intentsHandlers + eventsSender).forEach {
-                it.process(e)
+            // Dispatch the start event to all handlers
+            (intentsHandlers + eventsSender).forEach { handler ->
+                handler.process(e)
             }
         }
     }
