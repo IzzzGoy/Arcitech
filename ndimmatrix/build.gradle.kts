@@ -1,3 +1,6 @@
+import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.KotlinMultiplatform
+import com.vanniktech.maven.publish.SonatypeHost
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
@@ -5,12 +8,13 @@ import java.util.Properties
 plugins {
     kotlin("multiplatform")
     id("com.android.library")
-    `maven-publish`
-    signing
+    /*`maven-publish`
+    signing*/
+    id("com.vanniktech.maven.publish")
 }
 
-group = "com.ndmatrix.parameter"
-version = "1.0.3"
+group = "io.github.izzzgoy"
+version = "1.0.4"
 
 kotlin {
 
@@ -72,7 +76,7 @@ android {
     }
 }
 
-val secretPropsFile = project.rootProject.file("local.properties")
+/*val secretPropsFile = project.rootProject.file("local.properties")
 if (secretPropsFile.exists()) {
     secretPropsFile.reader().use {
         Properties().apply {
@@ -93,8 +97,9 @@ fun getExtraString(name: String) = ext[name]?.toString()
 
 val javadocJar by tasks.registering(Jar::class) {
     archiveClassifier.set("javadoc")
-}
+}*/
 
+/*
 publishing {
     publications {
         withType<MavenPublication> {
@@ -155,4 +160,50 @@ signing {
 
 tasks.withType<AbstractPublishToMaven>().configureEach {
     dependsOn(tasks.withType<Sign>())
+}*/
+
+mavenPublishing {
+    configure(
+        KotlinMultiplatform(
+            // configures the -javadoc artifact, possible values:
+            // - `JavadocJar.None()` don't publish this artifact
+            // - `JavadocJar.Empty()` publish an emprt jar
+            // - `JavadocJar.Dokka("dokkaHtml")` when using Kotlin with Dokka, where `dokkaHtml` is the name of the Dokka task that should be used as input
+            javadocJar = JavadocJar.Empty(),
+            // whether to publish a sources jar
+            sourcesJar = true,
+            // configure which Android library variants to publish if this project has an Android target
+            // defaults to "release" when using the main plugin and nothing for the base plugin
+            androidVariantsToPublish = listOf("debug", "release"),
+        )
+    )
+
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+
+    signAllPublications()
+
+    coordinates(group.toString(), "ndimmatrix", version.toString())
+
+    pom {
+        name.set("NDM Achitect")
+        description.set("Architecture component system")
+        url.set("https://github.com/IzzzGoy/Arcitech")
+
+        licenses {
+            license {
+                name.set("MIT")
+                url.set("https://opensource.org/licenses/MIT")
+            }
+        }
+        developers {
+            developer {
+                id.set("FromGoy")
+                name.set("Alexey")
+                email.set("xzadmoror@gmail.com")
+            }
+        }
+        scm {
+            url.set("https://github.com/IzzzGoy/Arcitech")
+        }
+    }
 }

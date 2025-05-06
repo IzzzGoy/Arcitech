@@ -14,4 +14,4 @@ package com.ndmatrix.parameter
  * @param S the type of the projection's computed state.
  * @see Parameter
  */
-abstract class Projection<S: Any> : Parameter<S>
+abstract class Projection<S: Any?> : Parameter<S>

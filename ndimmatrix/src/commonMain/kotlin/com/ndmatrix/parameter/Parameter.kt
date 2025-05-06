@@ -1,12 +1,18 @@
 package com.ndmatrix.parameter
 
+import com.ndmatrix.parameter.CallMetadata.Companion.CallMetadataKey
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlin.coroutines.coroutineContext
+import kotlin.reflect.KClass
+import kotlin.reflect.safeCast
+import kotlin.reflect.typeOf
 import kotlin.time.Duration
+import kotlin.time.measureTime
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -17,7 +23,7 @@ import kotlin.uuid.Uuid
  *
  * @param S the type of the parameter's state.
  */
-interface Parameter<S: Any> {
+interface Parameter<S: Any?> {
     /**
      * Current value of the parameter.
      */
@@ -54,7 +60,13 @@ data class PostExecMetadata<E: Message>(
  *
  * @param E the type of [Message] this handler processes.
  */
+@Suppress("UNCHECKED_CAST")
 abstract class EventHandler<E: Message> {
+    /**
+     * Key to determinate which event must be processed.
+     * */
+    protected abstract val messageType: KClass<E>
+
     /**
      * Internal mutable flow collecting metadata after each message is handled.
      */
@@ -79,7 +91,24 @@ abstract class EventHandler<E: Message> {
      *
      * @param e the message to process.
      */
-    abstract suspend fun process(e: Message)
+    @OptIn(ExperimentalUuidApi::class)
+    suspend fun process(e: Message) {
+        if (messageType.isInstance(e)) {
+            measureTime {
+                handle(e as E)
+            }.also {
+                _postMetadata.emit(
+                    PostExecMetadata(
+                        e,
+                        it,
+                        coroutineContext[CallMetadataKey]!!.parentId,
+                        coroutineContext[CallMetadataKey]!!.currentId
+                    )
+                )
+            }
+        }
+
+    }
 }
 
 /**
@@ -100,7 +129,7 @@ abstract class IntentHandler<E: Message.Intent> : EventHandler<E>()
  * @param S the type of the parameter's state.
  * @param initialValue the initial state value for the parameter.
  */
-abstract class ParameterHolder<E: Message.Intent, S: Any>(initialValue: S) :
+abstract class ParameterHolder<E: Message.Intent, S: Any?>(initialValue: S) :
     Parameter<S>,
     IntentHandler<E>() {
 

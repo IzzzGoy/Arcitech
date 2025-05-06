@@ -1,12 +1,16 @@
+@file:Suppress("UNCHECKED_CAST")
+
 package com.ndmatrix.parameter
 
 import com.ndmatrix.parameter.CallMetadata.Companion.CallMetadataKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
@@ -87,6 +91,7 @@ abstract class AbstractEventHandler<E : Message.Event>(
             _events.emit(parentId to block())
         }
     }
+
 }
 
 /**
@@ -109,6 +114,9 @@ abstract class EventChain<E : Message.Event>(
     isDebug: Boolean
 ) : AutoCloseable {
     private val coroutineScope: CoroutineScope = CoroutineScope(coroutineContext)
+
+    // Outer flow to interact with chain somewhere outside library
+    val events: Flow<Message> = merge(*eventsSender.map { it.events }.toTypedArray())
 
     init {
         if (isDebug) {
