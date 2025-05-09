@@ -56,8 +56,8 @@ class CallMetadata(
  * @param messageType the key to determinate which event must be processed.
  *
  *
- * @property events a _hot_ [SharedFlow] of child events without metadata.
- * @property rawEvents a [SharedFlow] of pairs (parentId, Message) for internal routing.
+ * @property events a _hot_ [kotlinx.coroutines.flow.SharedFlow] of child events without metadata.
+ * @property rawEvents a [kotlinx.coroutines.flow.SharedFlow] of pairs (parentId, Message) for internal routing.
  */
 @OptIn(ExperimentalUuidApi::class)
 abstract class AbstractEventHandler<E : Message.Event>(
@@ -106,7 +106,7 @@ abstract class AbstractEventHandler<E : Message.Event>(
  * @param intentsHandlers a list of [ParameterHolder] instances handling [Message.Intent]s.
  * @param eventsSender a list of [AbstractEventHandler] instances generating child events.
  * @param coroutineContext the coroutine context for the entire chain execution.
- * @param isDebug flag to enable collection of [postMetadata] for debugging purposes.
+ * @param isDebug flag to enable collection of [PostExecMetadata] for debugging purposes.
  *
  * @property coroutineScope the internal [CoroutineScope] for launching chain coroutines.
  */
