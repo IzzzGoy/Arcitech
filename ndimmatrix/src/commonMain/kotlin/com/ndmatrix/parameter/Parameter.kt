@@ -1,16 +1,9 @@
 package com.ndmatrix.parameter
 
 import com.ndmatrix.parameter.CallMetadata.Companion.CallMetadataKey
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.*
 import kotlin.coroutines.coroutineContext
 import kotlin.reflect.KClass
-import kotlin.reflect.safeCast
-import kotlin.reflect.typeOf
 import kotlin.time.Duration
 import kotlin.time.measureTime
 import kotlin.uuid.ExperimentalUuidApi
@@ -23,7 +16,7 @@ import kotlin.uuid.Uuid
  *
  * @param S the type of the parameter's state.
  */
-interface Parameter<S: Any?> {
+interface Parameter<S : Any?> {
     /**
      * Current value of the parameter.
      */
@@ -46,7 +39,7 @@ interface Parameter<S: Any?> {
  * @property currentId the UUID assigned to this event execution.
  */
 @OptIn(ExperimentalUuidApi::class)
-data class PostExecMetadata<E: Message>(
+data class PostExecMetadata<E : Message>(
     val event: E,
     val duration: Duration,
     val parentId: Uuid?,
@@ -59,14 +52,12 @@ data class PostExecMetadata<E: Message>(
  * Provides a flow of post-execution metadata for observability and debugging.
  *
  * @param E the type of [Message] this handler processes.
+ * @param messageType the key to determinate which event must be processed.
  */
 @Suppress("UNCHECKED_CAST")
-abstract class EventHandler<E: Message> {
-    /**
-     * Key to determinate which event must be processed.
-     * */
-    protected abstract val messageType: KClass<E>
-
+abstract class EventHandler<E : Message>(
+    private val messageType: KClass<E>
+) {
     /**
      * Internal mutable flow collecting metadata after each message is handled.
      */
@@ -117,8 +108,9 @@ abstract class EventHandler<E: Message> {
  * Differentiates intent handlers from general event handlers.
  *
  * @param E the specific subtype of [Message.Intent] this handler processes.
+ * @param messageType the key to determinate which event must be processed.
  */
-abstract class IntentHandler<E: Message.Intent> : EventHandler<E>()
+abstract class IntentHandler<E : Message.Intent>(messageType: KClass<E>) : EventHandler<E>(messageType)
 
 /**
  * Base implementation of [Parameter], combining state management and intent handling.
@@ -128,10 +120,12 @@ abstract class IntentHandler<E: Message.Intent> : EventHandler<E>()
  * @param E the intent message type used to mutate the parameter state.
  * @param S the type of the parameter's state.
  * @param initialValue the initial state value for the parameter.
+ * @param messageType the key to determinate which event must be processed.
  */
-abstract class ParameterHolder<E: Message.Intent, S: Any?>(initialValue: S) :
-    Parameter<S>,
-    IntentHandler<E>() {
+abstract class ParameterHolder<E : Message.Intent, S : Any?>(
+    initialValue: S,
+    messageType: KClass<E>
+) : Parameter<S>, IntentHandler<E>(messageType) {
 
     private val _flow = MutableStateFlow(initialValue)
     override val flow: StateFlow<S> = _flow.asStateFlow()

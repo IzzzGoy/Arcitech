@@ -4,6 +4,7 @@ package com.ndmatrix.parameter
 
 import com.ndmatrix.parameter.CallMetadata.Companion.CallMetadataKey
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.GlobalScope.coroutineContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
+import kotlin.reflect.KClass
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -52,14 +54,17 @@ class CallMetadata(
  *
  * @param E the type of input [Message.Event].
  * @param coroutineContext the coroutine context used for subscribing to output events.
+ * @param messageType the key to determinate which event must be processed.
+ *
  *
  * @property events a _hot_ [SharedFlow] of child events without metadata.
  * @property rawEvents a [SharedFlow] of pairs (parentId, Message) for internal routing.
  */
 @OptIn(ExperimentalUuidApi::class)
 abstract class AbstractEventHandler<E : Message.Event>(
-    coroutineContext: CoroutineContext
-) : EventHandler<E>() {
+    coroutineContext: CoroutineContext,
+    messageType: KClass<E>
+) : EventHandler<E>(messageType) {
     private val coroutineScope: CoroutineScope = CoroutineScope(coroutineContext)
     private val _events = MutableSharedFlow<Pair<Uuid, Message>>()
 
