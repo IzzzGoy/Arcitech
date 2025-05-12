@@ -4,6 +4,7 @@ import com.ndmatrix.parameter.CallMetadata.Companion.CallMetadataKey
 import kotlinx.coroutines.flow.*
 import kotlin.coroutines.coroutineContext
 import kotlin.reflect.KClass
+import kotlin.reflect.safeCast
 import kotlin.time.Duration
 import kotlin.time.measureTime
 import kotlin.uuid.ExperimentalUuidApi
@@ -84,21 +85,34 @@ abstract class EventHandler<E : Message>(
      */
     @OptIn(ExperimentalUuidApi::class)
     suspend fun process(e: Message) {
-        if (messageType.isInstance(e)) {
-            measureTime {
-                handle(e as E)
-            }.also {
-                _postMetadata.emit(
-                    PostExecMetadata(
-                        e,
-                        it,
-                        coroutineContext[CallMetadataKey]!!.parentId,
-                        coroutineContext[CallMetadataKey]!!.currentId
-                    )
-                )
+        messageType.safeCast(e)?.let { typedMessage ->
+            val executionTime = measureTime {
+                handle(typedMessage)
             }
+            emitExecutionMetadata(typedMessage, executionTime)
         }
+    }
 
+    /**
+     * Emits metadata about the execution of a message handling operation.
+     *
+     * @param message the message instance that was handled.
+     * @param duration the time duration taken to handle the message.
+     * @throws IllegalStateException if `CallMetadataKey` is not found in the coroutine context.
+     */
+    @OptIn(ExperimentalUuidApi::class)
+    private suspend fun emitExecutionMetadata(message: E, duration: Duration) {
+        val callMetadata = coroutineContext[CallMetadataKey]
+            ?: throw IllegalStateException("CallMetadataKey not found in coroutine context")
+
+        _postMetadata.emit(
+            PostExecMetadata(
+                event = message,
+                duration = duration,
+                parentId = callMetadata.parentId,
+                currentId = callMetadata.currentId
+            )
+        )
     }
 }
 

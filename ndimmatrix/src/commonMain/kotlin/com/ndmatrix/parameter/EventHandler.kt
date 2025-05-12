@@ -4,7 +4,6 @@ package com.ndmatrix.parameter
 
 import com.ndmatrix.parameter.CallMetadata.Companion.CallMetadataKey
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.GlobalScope.coroutineContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -57,8 +56,8 @@ class CallMetadata(
  * @param messageType the key to determinate which event must be processed.
  *
  *
- * @property events a _hot_ [SharedFlow] of child events without metadata.
- * @property rawEvents a [SharedFlow] of pairs (parentId, Message) for internal routing.
+ * @property events a _hot_ [kotlinx.coroutines.flow.SharedFlow] of child events without metadata.
+ * @property rawEvents a [kotlinx.coroutines.flow.SharedFlow] of pairs (parentId, Message) for internal routing.
  */
 @OptIn(ExperimentalUuidApi::class)
 abstract class AbstractEventHandler<E : Message.Event>(
@@ -107,7 +106,7 @@ abstract class AbstractEventHandler<E : Message.Event>(
  * @param intentsHandlers a list of [ParameterHolder] instances handling [Message.Intent]s.
  * @param eventsSender a list of [AbstractEventHandler] instances generating child events.
  * @param coroutineContext the coroutine context for the entire chain execution.
- * @param isDebug flag to enable collection of [postMetadata] for debugging purposes.
+ * @param isDebug flag to enable collection of [PostExecMetadata] for debugging purposes.
  *
  * @property coroutineScope the internal [CoroutineScope] for launching chain coroutines.
  */
@@ -120,50 +119,23 @@ abstract class EventChain<E : Message.Event>(
 ) : AutoCloseable {
     private val coroutineScope: CoroutineScope = CoroutineScope(coroutineContext)
 
-    // Outer flow to interact with chain somewhere outside library
+    /**
+     * Emits a merged flow of all events collected from the registered event senders.
+     *
+     * This flow combines the `events` from each sender into a single unified stream,
+     * allowing for centralized handling of `Message.Event` instances.
+     *
+     * The resulting flow includes all event types as defined by the `Message.Event` interface,
+     * acting as an entry point for external consumers to interact with the event chain.
+     */
     val events: Flow<Message> = merge(*eventsSender.map { it.events }.toTypedArray())
 
     init {
         if (isDebug) {
-            // Subscribe to post-execution metadata for all handlers for debugging
-            coroutineScope.launch {
-                (intentsHandlers + eventsSender).forEach { handler ->
-                    launch {
-                        handler.postMetadata.collect { meta ->
-                            postMiddleware(meta)
-                        }
-                    }
-                }
-            }
+            startPostMetadataHandling()
         }
 
-        // Main routing: listen to rawEvents from all event senders
-        coroutineScope.launch {
-            eventsSender.forEach { sender ->
-                launch {
-                    sender.rawEvents.collect { (parentId, message) ->
-                        when (message) {
-                            is Message.Event -> {
-                                // Forward events to all other event senders
-                                eventsSender.forEach { target ->
-                                    launch(CallMetadata(parentId, Uuid.random())) {
-                                        target.process(message)
-                                    }
-                                }
-                            }
-                            is Message.Intent -> {
-                                // Forward intents to all parameter holders
-                                intentsHandlers.forEach { holder ->
-                                    launch(CallMetadata(parentId, Uuid.random())) {
-                                        holder.process(message)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        startRawEventsListening()
     }
 
     /**
@@ -188,9 +160,96 @@ abstract class EventChain<E : Message.Event>(
      */
     fun general(e: E) {
         coroutineScope.launch(CallMetadata(null, Uuid.random())) {
-            // Dispatch the start event to all handlers
+            dispatchEvent(e)
+        }
+    }
+
+    /**
+     * Dispatches an event to all registered handlers within the event chain.
+     *
+     * @param e the event to be dispatched to the handlers.
+     */
+    private suspend fun dispatchEvent(e: E) {
+        (intentsHandlers + eventsSender).forEach { handler ->
+            handler.process(e)
+        }
+    }
+
+    /**
+     * Launches a coroutine to initiate the post-metadata handling process for event handlers.
+     *
+     * This method iterates over all available event and intent handlers, invoking the metadata
+     * collection and processing mechanism for each handler. It operates asynchronously, ensuring
+     * concurrent execution where applicable.
+     */
+    private fun startPostMetadataHandling() {
+        coroutineScope.launch {
             (intentsHandlers + eventsSender).forEach { handler ->
-                handler.process(e)
+                handlePostMetadata(handler)
+            }
+        }
+    }
+
+    private fun CoroutineScope.handlePostMetadata(handler: EventHandler<*>) {
+        launch {
+            handler.postMetadata.collect { meta ->
+                postMiddleware(meta)
+            }
+        }
+    }
+
+    /**
+     * Initiates the process of raw event collection for all registered event senders.
+     */
+    private fun startRawEventsListening() {
+        coroutineScope.launch {
+            eventsSender.forEach { sender ->
+                launchRawEventsCollection(sender)
+            }
+        }
+    }
+
+    /**
+     * Launches a coroutine to collect raw events from the provided sender.
+     * Processes collected events by forwarding them to the appropriate handlers
+     * based on their type (either `Message.Event` or `Message.Intent`).
+     *
+     * @param sender The event handler providing raw events to be processed.
+     */
+    private fun CoroutineScope.launchRawEventsCollection(sender: AbstractEventHandler<*>) {
+        launch {
+            sender.rawEvents.collect { (parentId, message) ->
+                when (message) {
+                    is Message.Event -> {
+                        forwardEventsToEventSenders(parentId, message)
+                    }
+
+                    is Message.Intent -> {
+                        forwardEventsToParameterHolders(parentId, message)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun CoroutineScope.forwardEventsToParameterHolders(
+        parentId: Uuid,
+        message: Message.Intent
+    ) {
+        intentsHandlers.forEach { holder ->
+            launch(CallMetadata(parentId, Uuid.random())) {
+                holder.process(message)
+            }
+        }
+    }
+
+    private fun CoroutineScope.forwardEventsToEventSenders(
+        parentId: Uuid,
+        message: Message.Event
+    ) {
+        eventsSender.forEach { target ->
+            launch(CallMetadata(parentId, Uuid.random())) {
+                target.process(message)
             }
         }
     }
