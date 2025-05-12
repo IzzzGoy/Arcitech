@@ -64,7 +64,7 @@ kotlin {
 
 android {
     compileSdk = 31
-    namespace = "com.ndmatrix.parameter"
+    namespace = "com.ndmatrix.core"
 
     defaultConfig {
         minSdk = 23

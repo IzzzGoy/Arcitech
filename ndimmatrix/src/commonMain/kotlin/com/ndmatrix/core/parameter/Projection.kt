@@ -1,4 +1,6 @@
-package com.ndmatrix.parameter
+package com.ndmatrix.core.parameter
+
+import com.ndmatrix.core.parameter.Parameter
 
 /**
  * Base marker class for aggregate projections in the framework.
@@ -7,7 +9,7 @@ package com.ndmatrix.parameter
  * by applying aggregation or transformation logic over one or more
  * source parameters and/or other projections.
  *
- * Projections expose a read-only [value] and a [flow] of updates
+ * Projections expose a read-only [Parameter.value] and a [Parameter.flow] of updates
  * from the underlying sources. When any source parameter or projection
  * changes, the projection recomputes its state accordingly.
  *
