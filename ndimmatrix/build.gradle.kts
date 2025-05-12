@@ -42,7 +42,7 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+                api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
             }
         }
 
@@ -64,7 +64,7 @@ kotlin {
 
 android {
     compileSdk = 31
-    namespace = "com.ndmatrix.parameter"
+    namespace = "com.ndmatrix.core"
 
     defaultConfig {
         minSdk = 23

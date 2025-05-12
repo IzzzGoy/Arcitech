@@ -1,4 +1,4 @@
-package com.ndmatrix.parameter
+package com.ndmatrix.core.event
 
 /**
  * Marker interface for all messages within the framework.
