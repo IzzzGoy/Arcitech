@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
@@ -16,6 +17,9 @@ import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import kotlin.reflect.KClass
+import kotlin.reflect.safeCast
+import kotlin.time.Duration
+import kotlin.time.measureTime
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -55,7 +59,6 @@ class CallMetadata(
  * @param coroutineContext the coroutine context used for subscribing to output events.
  * @param messageType the key to determinate which event must be processed.
  *
- *
  * @property events a _hot_ [kotlinx.coroutines.flow.SharedFlow] of child events without metadata.
  * @property rawEvents a [kotlinx.coroutines.flow.SharedFlow] of pairs (parentId, Message) for internal routing.
  */
@@ -63,7 +66,7 @@ class CallMetadata(
 abstract class AbstractEventHandler<E : Message.Event>(
     coroutineContext: CoroutineContext,
     messageType: KClass<E>
-) : EventHandler<E>(messageType) {
+) : PostMetadataEventHandler<E>(messageType) {
     private val coroutineScope: CoroutineScope = CoroutineScope(coroutineContext)
     private val _events = MutableSharedFlow<Pair<Uuid, Message>>()
 
@@ -95,7 +98,6 @@ abstract class AbstractEventHandler<E : Message.Event>(
             _events.emit(parentId to block())
         }
     }
-
 }
 
 /**

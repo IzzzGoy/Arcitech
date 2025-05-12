@@ -1,7 +1,12 @@
 package com.ndmatrix.parameter
 
 import com.ndmatrix.parameter.CallMetadata.Companion.CallMetadataKey
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlin.coroutines.coroutineContext
 import kotlin.reflect.KClass
 import kotlin.reflect.safeCast
@@ -48,38 +53,48 @@ data class PostExecMetadata<E : Message>(
 )
 
 /**
- * Base class for all entities capable of handling [Message] instances.
+ * Base interface for all entities capable of handling [Message] instances.
  *
  * Provides a flow of post-execution metadata for observability and debugging.
  *
  * @param E the type of [Message] this handler processes.
- * @param messageType the key to determinate which event must be processed.
  */
 @Suppress("UNCHECKED_CAST")
-abstract class EventHandler<E : Message>(
-    private val messageType: KClass<E>
-) {
-    /**
-     * Internal mutable flow collecting metadata after each message is handled.
-     */
-    protected val _postMetadata: MutableSharedFlow<PostExecMetadata<*>> = MutableSharedFlow()
-
+interface EventHandler<E : Message> {
     /**
      * Public shared flow emitting metadata after each message handling.
      */
-    val postMetadata: SharedFlow<PostExecMetadata<*>> = _postMetadata.asSharedFlow()
+    val postMetadata: SharedFlow<PostExecMetadata<*>>
 
     /**
      * Handles a message of type [E] with optimized logic.
      *
      * @param e the message instance to handle.
      */
-    abstract suspend fun handle(e: E)
+    suspend fun handle(e: E)
+}
+
+/**
+ * Abstract base class for handling post-metadata processing of specific message types.
+ *
+ * @param E the type of [Message] this handler processes, constrained by the generic parameter.
+ * @property messageType the specific type of message this handler is designed to process.
+ */
+abstract class PostMetadataEventHandler<E : Message>(
+    private val messageType: KClass<E>
+): EventHandler<E> {
+    /**
+     * Internal mutable flow collecting metadata after each message is handled.
+     */
+    private val _postMetadata: MutableSharedFlow<PostExecMetadata<*>> = MutableSharedFlow()
+    override val postMetadata: SharedFlow<PostExecMetadata<*>> = _postMetadata.asSharedFlow()
 
     /**
      * Generic entry point for processing any [Message].
      *
      * Used to unify handling in event chains and avoid type projection issues.
+     *
+     * Prefer to use this function instead of direct call to [handle]
      *
      * @param e the message to process.
      */
@@ -122,9 +137,12 @@ abstract class EventHandler<E : Message>(
  * Differentiates intent handlers from general event handlers.
  *
  * @param E the specific subtype of [Message.Intent] this handler processes.
- * @param messageType the key to determinate which event must be processed.
  */
-abstract class IntentHandler<E : Message.Intent>(messageType: KClass<E>) : EventHandler<E>(messageType)
+interface IntentHandler<E : Message.Intent> : EventHandler<E>
+
+abstract class PostMetadataIntentHandler<E : Message.Intent>(
+    messageType: KClass<E>
+): PostMetadataEventHandler<E>(messageType), IntentHandler<E>
 
 /**
  * Base implementation of [Parameter], combining state management and intent handling.
@@ -134,12 +152,11 @@ abstract class IntentHandler<E : Message.Intent>(messageType: KClass<E>) : Event
  * @param E the intent message type used to mutate the parameter state.
  * @param S the type of the parameter's state.
  * @param initialValue the initial state value for the parameter.
- * @param messageType the key to determinate which event must be processed.
  */
 abstract class ParameterHolder<E : Message.Intent, S : Any?>(
     initialValue: S,
     messageType: KClass<E>
-) : Parameter<S>, IntentHandler<E>(messageType) {
+) : Parameter<S>, PostMetadataIntentHandler<E>(messageType) {
 
     private val _flow = MutableStateFlow(initialValue)
     override val flow: StateFlow<S> = _flow.asStateFlow()
