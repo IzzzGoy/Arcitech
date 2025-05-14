@@ -5,10 +5,13 @@ import com.ndmatrix.core.metadata.PostExecMetadata
 import com.ndmatrix.core.parameter.ParameterHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
+import kotlin.reflect.KClass
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -29,10 +32,10 @@ import kotlin.uuid.Uuid
 abstract class EventChain<E : Message.Event>(
     private val intentsHandlers: List<ParameterHolder<*, *>>,
     private val eventsSender: List<AbstractEventHandler<*>>,
+    messageType: KClass<E>,
     coroutineContext: CoroutineContext,
     isDebug: Boolean
-) : AutoCloseable {
-    private val coroutineScope: CoroutineScope = CoroutineScope(coroutineContext)
+) : AbstractEventHandler<E>(coroutineContext, messageType), AutoCloseable {
 
     /**
      * Emits a merged flow of all events collected from the registered event senders.
@@ -43,7 +46,9 @@ abstract class EventChain<E : Message.Event>(
      * The resulting flow includes all event types as defined by the `Message.Event` interface,
      * acting as an entry point for external consumers to interact with the event chain.
      */
-    val events: Flow<Message> = merge(*eventsSender.map { it.events }.toTypedArray())
+    override val events: SharedFlow<Message> =
+        merge(*eventsSender.map { it.events }.toTypedArray())
+            .shareIn(coroutineScope, SharingStarted.Eagerly)
 
     init {
         if (isDebug) {
@@ -105,7 +110,7 @@ abstract class EventChain<E : Message.Event>(
         }
     }
 
-    private fun CoroutineScope.handlePostMetadata(handler: EventHandler<*>) {
+    private fun CoroutineScope.handlePostMetadata(handler: PostMetadataEventHandler<*>) {
         launch {
             handler.postMetadata.collect { meta ->
                 postMiddleware(meta)
