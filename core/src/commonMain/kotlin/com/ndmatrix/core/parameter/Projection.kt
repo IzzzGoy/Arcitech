@@ -1,5 +1,8 @@
 package com.ndmatrix.core.parameter
 
+import kotlinx.coroutines.CoroutineScope
+import kotlin.coroutines.CoroutineContext
+
 /**
  * Base marker class for aggregate projections in the framework.
  *
@@ -15,4 +18,6 @@ package com.ndmatrix.core.parameter
  * @see Parameter
  */
 @Suppress("UNUSED")
-abstract class Projection<S: Any?> : Parameter<S>
+abstract class Projection<S: Any?>(coroutineContext: CoroutineContext) : Parameter<S> {
+    protected val coroutineScope = CoroutineScope(coroutineContext)
+}
