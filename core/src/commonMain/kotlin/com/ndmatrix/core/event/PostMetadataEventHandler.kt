@@ -1,8 +1,7 @@
 package com.ndmatrix.core.event
 
-import com.ndmatrix.core.metadata.PostExecMetadata
 import com.ndmatrix.core.metadata.CallMetadata
-import com.ndmatrix.core.event.Message
+import com.ndmatrix.core.metadata.PostExecMetadata
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -56,7 +55,7 @@ abstract class PostMetadataEventHandler<E : Message>(
      */
     @OptIn(ExperimentalUuidApi::class)
     private suspend fun emitExecutionMetadata(message: E, duration: Duration) {
-        val callMetadata = coroutineContext[CallMetadata.Companion.CallMetadataKey]
+        val callMetadata = coroutineContext[CallMetadata.CallMetadataKey]
             ?: throw IllegalStateException("CallMetadataKey not found in coroutine context")
 
         _postMetadata.emit(

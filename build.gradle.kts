@@ -5,5 +5,5 @@ plugins {
     id("com.vanniktech.maven.publish") version "0.30.0" apply false
 }
 
-version = "1.0.0"
+version = "1.0.1"
 group = "io.github.izzzgoy"

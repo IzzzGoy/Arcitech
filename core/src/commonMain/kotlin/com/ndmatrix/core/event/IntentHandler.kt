@@ -1,6 +1,5 @@
 package com.ndmatrix.core.event
 
-import com.ndmatrix.core.event.Message
 import kotlin.reflect.KClass
 
 /**

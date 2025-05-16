@@ -51,8 +51,9 @@ abstract class AbstractEventHandler<E : Message.Event>(
      * @param block a factory lambda that produces a [Message] instance.
      * @throws IllegalStateException if [com.ndmatrix.core.metadata.CallMetadata] is not present in the context.
      */
+    @Suppress("UNUSED")
     protected suspend fun returnEvent(block: () -> Message) {
-        val metadata = coroutineContext[CallMetadata.Companion.CallMetadataKey]
+        val metadata = coroutineContext[CallMetadata.CallMetadataKey]
             ?: error("CallMetadata not found in CoroutineContext")
         val parentId = metadata.currentId
 

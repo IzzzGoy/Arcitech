@@ -20,5 +20,6 @@ dependencyResolutionManagement {
     }
 }
 
-include(":ndimmatrix")
-
+include(":core")
+//include(":dsl")
+include(":test")

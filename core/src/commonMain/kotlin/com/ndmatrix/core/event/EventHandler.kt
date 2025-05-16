@@ -1,7 +1,6 @@
 package com.ndmatrix.core.event
 
 import com.ndmatrix.core.metadata.PostExecMetadata
-import com.ndmatrix.core.event.Message
 import kotlinx.coroutines.flow.SharedFlow
 
 /**
@@ -11,7 +10,6 @@ import kotlinx.coroutines.flow.SharedFlow
  *
  * @param E the type of [Message] this handler processes.
  */
-@Suppress("UNCHECKED_CAST")
 interface EventHandler<E : Message> {
     /**
      * Public shared flow emitting metadata after each message handling.

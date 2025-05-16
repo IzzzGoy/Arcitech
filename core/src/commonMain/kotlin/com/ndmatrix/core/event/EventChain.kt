@@ -3,7 +3,6 @@ package com.ndmatrix.core.event
 import com.ndmatrix.core.metadata.CallMetadata
 import com.ndmatrix.core.metadata.PostExecMetadata
 import com.ndmatrix.core.parameter.ParameterHolder
-import com.ndmatrix.core.event.AbstractEventHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +25,7 @@ import kotlin.uuid.Uuid
  * @property coroutineScope the internal [kotlinx.coroutines.CoroutineScope] for launching chain coroutines.
  */
 @OptIn(ExperimentalUuidApi::class)
+@Suppress("UNUSED")
 abstract class EventChain<E : Message.Event>(
     private val intentsHandlers: List<ParameterHolder<*, *>>,
     private val eventsSender: List<AbstractEventHandler<*>>,

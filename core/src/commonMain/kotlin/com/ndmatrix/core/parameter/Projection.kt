@@ -1,7 +1,5 @@
 package com.ndmatrix.core.parameter
 
-import com.ndmatrix.core.parameter.Parameter
-
 /**
  * Base marker class for aggregate projections in the framework.
  *
@@ -16,4 +14,5 @@ import com.ndmatrix.core.parameter.Parameter
  * @param S the type of the projection's computed state.
  * @see Parameter
  */
+@Suppress("UNUSED")
 abstract class Projection<S: Any?> : Parameter<S>
