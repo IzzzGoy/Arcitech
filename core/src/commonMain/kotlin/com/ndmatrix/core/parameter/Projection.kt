@@ -19,5 +19,5 @@ import kotlin.coroutines.CoroutineContext
  */
 @Suppress("UNUSED")
 abstract class Projection<S: Any?>(coroutineContext: CoroutineContext) : Parameter<S> {
-    protected val coroutineScope = CoroutineScope(coroutineContext)
+    protected val projectionCoroutineScope = CoroutineScope(coroutineContext)
 }
