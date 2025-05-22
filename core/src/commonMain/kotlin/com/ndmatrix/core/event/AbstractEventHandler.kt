@@ -30,13 +30,13 @@ abstract class AbstractEventHandler<E : Message.Event>(
     coroutineContext: CoroutineContext,
     messageType: KClass<E>
 ) : PostMetadataEventHandler<E>(messageType) {
-    private val coroutineScope: CoroutineScope = CoroutineScope(coroutineContext)
+    protected val coroutineScope: CoroutineScope = CoroutineScope(coroutineContext)
     private val _events = MutableSharedFlow<Pair<Uuid, Message>>()
 
     /**
      * A flow of child events without metadata.
      */
-    val events = _events
+    open val events = _events
         .map { it.second }
         .shareIn(coroutineScope, SharingStarted.Companion.Eagerly)
 

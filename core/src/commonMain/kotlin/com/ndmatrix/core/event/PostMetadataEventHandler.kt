@@ -2,6 +2,7 @@ package com.ndmatrix.core.event
 
 import com.ndmatrix.core.metadata.CallMetadata
 import com.ndmatrix.core.metadata.PostExecMetadata
+import com.ndmatrix.core.metadata.PostMetadataProvider
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -20,11 +21,15 @@ import kotlin.uuid.ExperimentalUuidApi
  */
 abstract class PostMetadataEventHandler<E : Message>(
     private val messageType: KClass<E>
-): EventHandler<E> {
+) : EventHandler<E>, PostMetadataProvider {
     /**
      * Internal mutable flow collecting metadata after each message is handled.
      */
     private val _postMetadata: MutableSharedFlow<PostExecMetadata<*>> = MutableSharedFlow()
+
+    /**
+     * Public shared flow emitting metadata after each message handling.
+     */
     override val postMetadata: SharedFlow<PostExecMetadata<*>> = _postMetadata.asSharedFlow()
 
     /**
