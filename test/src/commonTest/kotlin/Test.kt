@@ -53,7 +53,9 @@ class TestEventHandler : AbstractEventHandler<TestEventHandler.TestEvent>(
     data object TestEvent: Message.Event
 
     override suspend fun handle(e: TestEvent) {
-        println("Executed")
+        returnEvent {
+            SampleIntents.Bar
+        }
     }
 }
 
@@ -82,8 +84,10 @@ class TestEvent1Handler : AbstractEventHandler<TestEvent1Handler.TestEvent1>(
     }
 }
 
-class TestEvent1Chain : EventChain<TestEvent1Handler.TestEvent1>(
-    intentsHandlers = listOf(),
+class TestEvent1Chain(
+    sampleParameterHolder: SampleParameterHolder
+) : EventChain<TestEvent1Handler.TestEvent1>(
+    intentsHandlers = listOf(sampleParameterHolder),
     eventsSender = listOf(TestEvent1Handler(), TestEventChain()),
     isDebug = true,
     coroutineContext = Dispatchers.Default
@@ -153,10 +157,12 @@ class Test {
 
     @Test
     fun testChains() {
-        val testChain = TestEvent1Chain()
+        val sampleParameterHolder = SampleParameterHolder()
+        val testChain = TestEvent1Chain(sampleParameterHolder)
         runBlocking(Dispatchers.Default.limitedParallelism(1)) {
             testChain.general(TestEvent1Handler.TestEvent1)
-            delay(100.seconds)
+            delay(3.seconds)
+            println(sampleParameterHolder.value)
         }
 
     }

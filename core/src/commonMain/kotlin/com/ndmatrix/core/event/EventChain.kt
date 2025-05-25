@@ -11,10 +11,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
-import kotlin.reflect.KClass
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -210,7 +208,9 @@ abstract class EventChain<E : Message.Event>(
     ) {
         intentsHandlers.forEach { holder ->
             launch(CallMetadata(parentId, Uuid.Companion.random())) {
-                holder.process(message)
+                if (holder.canProcessed(message)) {
+                    holder.process(message)
+                }
             }
         }
     }
@@ -221,7 +221,11 @@ abstract class EventChain<E : Message.Event>(
     ) {
         eventsSender.forEach { target ->
             launch(CallMetadata(parentId, Uuid.Companion.random())) {
-                target.process(message)
+                if (target is AbstractEventHandler<*> && target.canProcessed(message)) {
+                    target.process(message)
+                } else {
+                    target.process(message)
+                }
             }
         }
     }

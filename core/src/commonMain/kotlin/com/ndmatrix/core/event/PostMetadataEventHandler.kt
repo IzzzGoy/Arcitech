@@ -50,6 +50,8 @@ abstract class PostMetadataEventHandler<E : Message>(
         }
     }
 
+    fun canProcessed(e: Message) = messageType.isInstance(e)
+
     /**
      * Emits metadata about the execution of a message handling operation.
      *
