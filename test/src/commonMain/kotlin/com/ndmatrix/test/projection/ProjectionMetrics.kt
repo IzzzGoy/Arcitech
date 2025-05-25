@@ -1,4 +1,4 @@
-package com.ndmatrix.test.parameter
+package com.ndmatrix.test.projection
 
 import com.ndmatrix.core.event.Message
 import com.ndmatrix.test.base.Metrics
@@ -8,10 +8,10 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 
-interface ParameterMetricsBuilder<I : Message.Intent, S : Any?> : MetricsBuilder<I>
+interface ProjectionMetricsBuilder<I : Message.Intent, S : Any?> : MetricsBuilder<I>
 
-internal class ParameterMetricsBuilderImpl<I : Message.Intent, S : Any?> :
-    ParameterMetricsBuilder<I, S> {
+internal class ProjectionMetricsBuilderImpl<I : Message.Intent, S : Any?> :
+    ProjectionMetricsBuilder<I, S> {
 
     private val durations = mutableMapOf<KClass<out Message>, ClosedRange<Duration>>()
     private val parents = mutableMapOf<KClass<out Message>, KClass<out Message>>()
@@ -28,7 +28,7 @@ internal class ParameterMetricsBuilderImpl<I : Message.Intent, S : Any?> :
     override fun build(): Metrics {
         return object : Metrics {
             private val durations: Map<KClass<out Message>, ClosedRange<Duration>> =
-                this@ParameterMetricsBuilderImpl.durations
+                this@ProjectionMetricsBuilderImpl.durations
 
             override fun check(clazz: KClass<out Message>, duration: Duration) {
                 val range = durations[clazz]
@@ -55,6 +55,3 @@ internal class ParameterMetricsBuilderImpl<I : Message.Intent, S : Any?> :
     }
 
 }
-
-
-

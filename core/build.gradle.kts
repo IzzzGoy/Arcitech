@@ -10,9 +10,6 @@ plugins {
     id("com.vanniktech.maven.publish")
 }
 
-group = "io.github.izzzgoy"
-version = "1.0.1"
-
 kotlin {
 
     androidTarget {

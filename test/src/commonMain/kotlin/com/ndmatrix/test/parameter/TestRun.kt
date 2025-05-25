@@ -10,10 +10,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
-interface ParameterTestRunBuilder<I : Message.Intent, S : Any> :
-    TestRunBuilder<I, S> {
-
-}
+interface ParameterTestRunBuilder<I : Message.Intent, S : Any> : TestRunBuilder<I, S>
 
 internal class ParameterTestRunBuilderImpl<I : Message.Intent, S : Any>(
     private val parameterHolder: ParameterHolder<I, S>

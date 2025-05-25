@@ -1,9 +1,11 @@
-package com.ndmatrix.test.parameter
+package com.ndmatrix.test.projection
 
+import app.cash.turbine.test
 import com.ndmatrix.core.event.Message
 import com.ndmatrix.core.metadata.CallMetadata
 import com.ndmatrix.core.metadata.PostExecMetadata
 import com.ndmatrix.core.parameter.ParameterHolder
+import com.ndmatrix.core.parameter.Projection
 import com.ndmatrix.test.base.DefaultStrategyBuilder
 import com.ndmatrix.test.base.Metrics
 import com.ndmatrix.test.base.SampleStrategy
@@ -19,60 +21,39 @@ import kotlin.test.assertEquals
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-internal class ParameterOrderwiseStrategy<I : Message.Intent, S : Any>(
-    private val parameter: ParameterHolder<I, S>,
-    private val metrics: Metrics,
-    override val sample: Iterable<S>,
-) : SampleStrategy.Orderwise<I, S> {
-
-    private val params = mutableListOf<S>()
-    var postMetadata = emptyList<PostExecMetadata<*>>()
-    @OptIn(ExperimentalUuidApi::class)
-    var parentId: Uuid? = null
-
-    @OptIn(ExperimentalUuidApi::class)
-    override suspend fun run(vararg input: I) {
-
-
-        CoroutineScope(Dispatchers.Default).launch(Dispatchers.Default) {
-            postMetadata = parameter
-                .postMetadata
-                .take(input.size)
-                .toList()
-        }
-
-        params += parameter.flow.value
-        for (event in input) {
-            withContext(CallMetadata(parentId)) {
-                parameter.process(event)
-                params += parameter.flow.value
-                parentId = coroutineContext[CallMetadata.CallMetadataKey]?.currentId
-            }
-        }
-
-        assertEquals(sample.toList(), params.toList())
-        postMetadata.forEach {
-            metrics.check(it.event::class, it.duration)
-            val parent = postMetadata.find { p -> p.currentId == it.parentId }
-            if (parent != null) {
-                metrics.check(it.event::class, parent.event::class)
-            }
-        }
-
+internal class ProjectionOrderwiseStrategyBuilder<E: Message.Intent, S: Any?>(
+    private val parameter: ParameterHolder<E, *>,
+    private val projection: Projection<S>,
+): StrategyBuilder.Orderwise<E, S>, DefaultStrategyBuilder<E, S>(ProjectionMetricsBuilderImpl<E, S>()) {
+    override fun build(): SampleStrategy<E, S> {
+        return ProjectionOrderviseStrategy<E, S>(
+            parameter = parameter, projection = projection, sample = sample, metrics = metrics
+        )
     }
 }
 
-internal class ParameterOccurrenceStrategy<I : Message.Intent, S : Any>(
-    private val parameter: ParameterHolder<I, S>,
-    private val metrics: Metrics,
-    override val sample: Iterable<S>,
-) : SampleStrategy.Occurrence<I, S> {
+internal class ProjectionOccurrenceStrategyBuilder<E: Message.Intent, S: Any?>(
+    private val parameter: ParameterHolder<E, *>,
+    private val projection: Projection<S>,
+): StrategyBuilder.Occurrence<E, S>, DefaultStrategyBuilder<E, S>(ProjectionMetricsBuilderImpl<E, S>()) {
+    override fun build(): SampleStrategy<E, S> {
+        return ProjectionOccurrenceStrategy<E, S>(
+            parameter = parameter, projection = projection, sample = sample, metrics = metrics
+        )
+    }
+}
 
+internal class ProjectionOrderviseStrategy<E: Message.Intent, S: Any?>(
+    private val parameter: ParameterHolder<E, *>,
+    private val projection: Projection<S>,
+    override val sample: Iterable<S>,
+    private val metrics: Metrics,
+): SampleStrategy.Orderwise<E, S> {
     private val params = mutableListOf<S>()
 
 
     @OptIn(ExperimentalUuidApi::class)
-    override suspend fun run(vararg input: I) {
+    override suspend fun run(vararg input: E) {
 
         var postMetadata = emptyList<PostExecMetadata<*>>()
         var parentId: Uuid? = null
@@ -82,18 +63,21 @@ internal class ParameterOccurrenceStrategy<I : Message.Intent, S : Any>(
                 .take(input.size)
                 .toList()
         }
-
-        params += parameter.flow.value
+        projection.flow.test {
+            params += awaitItem()
+            cancelAndIgnoreRemainingEvents()
+        }
         for (event in input) {
             withContext(CallMetadata(parentId)) {
                 parameter.process(event)
-                params += parameter.flow.value
+                projection.flow.test {
+                    params += awaitItem()
+                    cancelAndIgnoreRemainingEvents()
+                }
                 parentId = coroutineContext[CallMetadata.CallMetadataKey]?.currentId
             }
         }
-        params.forEach { param ->
-            assertContains(sample, param)
-        }
+        assertEquals(sample.toList(), params.toList())
         postMetadata.forEach {
             metrics.check(it.event::class, it.duration)
             val parent = postMetadata.find { p -> p.currentId == it.parentId }
@@ -104,38 +88,51 @@ internal class ParameterOccurrenceStrategy<I : Message.Intent, S : Any>(
     }
 }
 
-internal interface ParameterOrderwiseStrategyBuilder<I : Message.Intent, S : Any> :
-    StrategyBuilder.Orderwise<I, S>
+internal class ProjectionOccurrenceStrategy<E: Message.Intent, S: Any?>(
+    private val parameter: ParameterHolder<E, *>,
+    private val projection: Projection<S>,
+    override val sample: Iterable<S>,
+    private val metrics: Metrics,
+): SampleStrategy.Orderwise<E, S> {
 
-internal class ParameterOrderwiseStrategyBuilderImpl<I : Message.Intent, S : Any>(
-    private val parameterHolder: ParameterHolder<I, S>
-) : ParameterOrderwiseStrategyBuilder<I, S>,
-    DefaultStrategyBuilder<I, S>(ParameterMetricsBuilderImpl<I, S>()) {
+    private val params = mutableListOf<S>()
 
 
-    override fun build(): SampleStrategy<I, S> {
-        return ParameterOrderwiseStrategy(
-            parameter = parameterHolder,
-            metrics = metrics,
-            sample = sample.asIterable()
-        )
+    @OptIn(ExperimentalUuidApi::class)
+    override suspend fun run(vararg input: E) {
+
+        var postMetadata = emptyList<PostExecMetadata<*>>()
+        var parentId: Uuid? = null
+        CoroutineScope(Dispatchers.Default).launch(Dispatchers.Default) {
+            postMetadata = parameter
+                .postMetadata
+                .take(input.size)
+                .toList()
+        }
+        projection.flow.test {
+            params += awaitItem()
+            cancelAndIgnoreRemainingEvents()
+        }
+        for (event in input) {
+            withContext(CallMetadata(parentId)) {
+                parameter.process(event)
+                projection.flow.test {
+                    params += awaitItem()
+                    cancelAndIgnoreRemainingEvents()
+                }
+                parentId = coroutineContext[CallMetadata.CallMetadataKey]?.currentId
+            }
+        }
+        val prettySample = sample.toList()
+        params.forEach { param ->
+            assertContains(prettySample, param)
+        }
+        postMetadata.forEach {
+            metrics.check(it.event::class, it.duration)
+            val parent = postMetadata.find { p -> p.currentId == it.parentId }
+            if (parent != null) {
+                metrics.check(it.event::class, parent.event::class)
+            }
+        }
     }
-}
-
-interface ParameterOccurrenceStrategyBuilder<I : Message.Intent, S : Any> :
-    StrategyBuilder.Occurrence<I, S>
-
-internal class ParameterOccurrenceStrategyBuilderImpl<I : Message.Intent, S : Any>(
-    private val parameterHolder: ParameterHolder<I, S>
-) : ParameterOccurrenceStrategyBuilder<I, S>,
-    DefaultStrategyBuilder<I, S>(ParameterMetricsBuilderImpl<I, S>()) {
-
-    override fun build(): SampleStrategy<I, S> {
-        return ParameterOccurrenceStrategy(
-            parameter = parameterHolder,
-            metrics = metrics,
-            sample = sample.asIterable()
-        )
-    }
-
 }

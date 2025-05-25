@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
 import kotlin.reflect.KClass
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -79,7 +80,29 @@ abstract class EventChain<E : Message.Event>(
      * @param e the initial event to start the chain.
      */
     fun general(e: E) {
-        coroutineScope.launch(CallMetadata(null, Uuid.Companion.random())) {
+        dispatchEventWithMetadata(null, e)
+    }
+
+    /**
+     * Handles a message of type [E] with optimized logic.
+     * Propagate parent event ID to chain parent and child event chains.
+     *
+     * @param e the message instance to handle.
+     */
+    override suspend fun handle(e: E) {
+        val parentId = coroutineContext[CallMetadata.CallMetadataKey]?.parentId
+        dispatchEventWithMetadata(parentId, e)
+    }
+
+    /**
+     * Extract parent event ID metadata and dispatches an event to all registered handlers within
+     * the event chain.
+     *
+     * @param e the event to be dispatched to the handlers.
+     * @param parentId the parent event ID if exists.
+     */
+    private fun dispatchEventWithMetadata(parentId: Uuid?, e: E) {
+        coroutineScope.launch(CallMetadata(parentId, Uuid.random())) {
             dispatchEvent(e)
         }
     }
