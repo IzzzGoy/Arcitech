@@ -43,7 +43,7 @@ abstract class EventChain<E : Message.Event>(
         isDebug: Boolean = true,
         parameterHolders: List<ParameterHolder<*, *>> = emptyList(),
         chainables: List<Chainable> = emptyList(),
-    ): this(
+    ) : this(
         intentsHandlers = parameterHolders,
         eventsSender = chainables + starter,
         coroutineContext = coroutineContext,
@@ -65,9 +65,9 @@ abstract class EventChain<E : Message.Event>(
         merge(*eventsSender.map { it.events }.toTypedArray())
             .shareIn(coroutineScope, SharingStarted.Eagerly)
 
-    override val rawEvents: Flow<Pair<Uuid, Message>>
-         = merge(*eventsSender.map { it.rawEvents }.toTypedArray())
-        .shareIn(coroutineScope, SharingStarted.Eagerly)
+    override val rawEvents: Flow<Pair<Uuid, Message>> =
+        merge(*eventsSender.map { it.rawEvents }.toTypedArray())
+            .shareIn(coroutineScope, SharingStarted.Eagerly)
 
     init {
         if (isDebug) {
@@ -207,8 +207,8 @@ abstract class EventChain<E : Message.Event>(
         message: Message.Intent
     ) {
         intentsHandlers.forEach { holder ->
-            launch(CallMetadata(parentId, Uuid.Companion.random())) {
-                if (holder.canProcessed(message)) {
+            if (holder.canProcessed(message)) {
+                launch(CallMetadata(parentId, Uuid.Companion.random())) {
                     holder.process(message)
                 }
             }
@@ -220,8 +220,8 @@ abstract class EventChain<E : Message.Event>(
         message: Message.Event
     ) {
         eventsSender.forEach { target ->
-            launch(CallMetadata(parentId, Uuid.Companion.random())) {
-                if ((target is AbstractEventHandler<*> && target.canProcessed(message)) || target is EventChain<*>) {
+            if ((target is AbstractEventHandler<*> && target.canProcessed(message)) || target is EventChain<*>) {
+                launch(CallMetadata(parentId, Uuid.Companion.random())) {
                     target.process(message)
                 }
             }
