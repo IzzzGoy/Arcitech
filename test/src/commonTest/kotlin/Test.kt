@@ -1,4 +1,7 @@
+import com.ndmatrix.core.event.AbstractEventHandler
+import com.ndmatrix.core.event.EventChain
 import com.ndmatrix.core.event.Message
+import com.ndmatrix.core.metadata.PostExecMetadata
 import com.ndmatrix.core.parameter.ParameterHolder
 import com.ndmatrix.core.parameter.Projection
 import com.ndmatrix.test.base.duration
@@ -6,12 +9,15 @@ import com.ndmatrix.test.base.parent
 import com.ndmatrix.test.parameter.parameterTest
 import com.ndmatrix.test.projection.projectionTest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.nanoseconds
+import kotlin.time.Duration.Companion.seconds
 
 
 sealed interface SampleIntents : Message.Intent {
@@ -37,6 +43,55 @@ class TestProjection(
         started = SharingStarted.WhileSubscribed(5_000L)
     )
 
+}
+
+
+class TestEventHandler : AbstractEventHandler<TestEventHandler.TestEvent>(
+    Dispatchers.Default,
+    TestEvent::class
+) {
+    data object TestEvent: Message.Event
+
+    override suspend fun handle(e: TestEvent) {
+        println("Executed")
+    }
+}
+
+class TestEventChain : EventChain<TestEventHandler.TestEvent>(
+    intentsHandlers = listOf(),
+    eventsSender = listOf(TestEventHandler()),
+    isDebug = true,
+    coroutineContext = Dispatchers.Default
+) {
+    override fun postMiddleware(postExecMetadata: PostExecMetadata<*>) {
+        super.postMiddleware(postExecMetadata)
+        println("TestEventChain: $postExecMetadata")
+    }
+}
+
+class TestEvent1Handler : AbstractEventHandler<TestEvent1Handler.TestEvent1>(
+    Dispatchers.Default,
+    TestEvent1::class
+) {
+    data object TestEvent1: Message.Event
+
+    override suspend fun handle(e: TestEvent1) {
+        returnEvent {
+            TestEventHandler.TestEvent
+        }
+    }
+}
+
+class TestEvent1Chain : EventChain<TestEvent1Handler.TestEvent1>(
+    intentsHandlers = listOf(),
+    eventsSender = listOf(TestEvent1Handler(), TestEventChain()),
+    isDebug = true,
+    coroutineContext = Dispatchers.Default
+) {
+    override fun postMiddleware(postExecMetadata: PostExecMetadata<*>) {
+        super.postMiddleware(postExecMetadata)
+        println("TestEvent1Chain: $postExecMetadata")
+    }
 }
 
 class Test {
@@ -94,6 +149,16 @@ class Test {
                 }
             }
         }.run(SampleIntents.Foo, SampleIntents.Bar)
+    }
+
+    @Test
+    fun testChains() {
+        val testChain = TestEvent1Chain()
+        runBlocking(Dispatchers.Default.limitedParallelism(1)) {
+            testChain.general(TestEvent1Handler.TestEvent1)
+            delay(100.seconds)
+        }
+
     }
 
 }

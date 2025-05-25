@@ -29,21 +29,21 @@ import kotlin.uuid.Uuid
 abstract class AbstractEventHandler<E : Message.Event>(
     coroutineContext: CoroutineContext,
     messageType: KClass<E>
-) : PostMetadataEventHandler<E>(messageType) {
+) : PostMetadataEventHandler<E>(messageType), Chainable {
     protected val coroutineScope: CoroutineScope = CoroutineScope(coroutineContext)
     private val _events = MutableSharedFlow<Pair<Uuid, Message>>()
 
     /**
      * A flow of child events without metadata.
      */
-    open val events = _events
+    override val events = _events
         .map { it.second }
         .shareIn(coroutineScope, SharingStarted.Companion.Eagerly)
 
     /**
      * A flow of child events paired with their parent ID.
      */
-    val rawEvents = _events.asSharedFlow()
+    override val rawEvents = _events.asSharedFlow()
 
     /**
      * Emits a new event into the outgoing events flow.

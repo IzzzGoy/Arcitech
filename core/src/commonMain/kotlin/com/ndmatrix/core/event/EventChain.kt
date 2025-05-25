@@ -5,11 +5,13 @@ import com.ndmatrix.core.metadata.PostExecMetadata
 import com.ndmatrix.core.parameter.ParameterHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import kotlin.reflect.KClass
@@ -32,11 +34,25 @@ import kotlin.uuid.Uuid
 @Suppress("UNUSED")
 abstract class EventChain<E : Message.Event>(
     private val intentsHandlers: List<ParameterHolder<*, *>>,
-    private val eventsSender: List<AbstractEventHandler<*>>,
-    messageType: KClass<E>,
+    private val eventsSender: List<Chainable>,
     coroutineContext: CoroutineContext,
     isDebug: Boolean
-) : AbstractEventHandler<E>(coroutineContext, messageType), AutoCloseable {
+) : AutoCloseable, Chainable {
+
+    constructor(
+        starter: AbstractEventHandler<E>,
+        coroutineContext: CoroutineContext,
+        isDebug: Boolean = true,
+        parameterHolders: List<ParameterHolder<*, *>> = emptyList(),
+        chainables: List<Chainable> = emptyList(),
+    ): this(
+        intentsHandlers = parameterHolders,
+        eventsSender = chainables + starter,
+        coroutineContext = coroutineContext,
+        isDebug = isDebug
+    )
+
+    private val coroutineScope = CoroutineScope(coroutineContext)
 
     /**
      * Emits a merged flow of all events collected from the registered event senders.
@@ -50,6 +66,10 @@ abstract class EventChain<E : Message.Event>(
     override val events: SharedFlow<Message> =
         merge(*eventsSender.map { it.events }.toTypedArray())
             .shareIn(coroutineScope, SharingStarted.Eagerly)
+
+    override val rawEvents: Flow<Pair<Uuid, Message>>
+         = merge(*eventsSender.map { it.rawEvents }.toTypedArray())
+        .shareIn(coroutineScope, SharingStarted.Eagerly)
 
     init {
         if (isDebug) {
@@ -84,12 +104,12 @@ abstract class EventChain<E : Message.Event>(
     }
 
     /**
-     * Handles a message of type [E] with optimized logic.
+     * Handles a message.
      * Propagate parent event ID to chain parent and child event chains.
      *
      * @param e the message instance to handle.
      */
-    override suspend fun handle(e: E) {
+    override suspend fun process(e: Message) {
         val parentId = coroutineContext[CallMetadata.CallMetadataKey]?.parentId
         dispatchEventWithMetadata(parentId, e)
     }
@@ -101,7 +121,7 @@ abstract class EventChain<E : Message.Event>(
      * @param e the event to be dispatched to the handlers.
      * @param parentId the parent event ID if exists.
      */
-    private fun dispatchEventWithMetadata(parentId: Uuid?, e: E) {
+    private fun dispatchEventWithMetadata(parentId: Uuid?, e: Message) {
         coroutineScope.launch(CallMetadata(parentId, Uuid.random())) {
             dispatchEvent(e)
         }
@@ -112,7 +132,7 @@ abstract class EventChain<E : Message.Event>(
      *
      * @param e the event to be dispatched to the handlers.
      */
-    private suspend fun dispatchEvent(e: E) {
+    private suspend fun dispatchEvent(e: Message) {
         (intentsHandlers + eventsSender).forEach { handler ->
             handler.process(e)
         }
@@ -128,7 +148,9 @@ abstract class EventChain<E : Message.Event>(
     private fun startPostMetadataHandling() {
         coroutineScope.launch {
             (intentsHandlers + eventsSender).forEach { handler ->
-                handlePostMetadata(handler)
+                if (handler is PostMetadataEventHandler<*>) {
+                    handlePostMetadata(handler)
+                }
             }
         }
     }
@@ -159,24 +181,31 @@ abstract class EventChain<E : Message.Event>(
      *
      * @param sender The event handler providing raw events to be processed.
      */
-    private fun CoroutineScope.launchRawEventsCollection(sender: AbstractEventHandler<*>) {
+    private fun CoroutineScope.launchRawEventsCollection(sender: Chainable) {
         launch {
             sender.rawEvents.collect { (parentId, message) ->
-                when (message) {
-                    is Message.Event -> {
-                        forwardEventsToEventSenders(parentId, message)
-                    }
+                forwardEventsToConsumers(message, parentId)
+            }
+        }
+    }
 
-                    is Message.Intent -> {
-                        forwardEventsToParameterHolders(parentId, message)
-                    }
-                }
+    private fun CoroutineScope.forwardEventsToConsumers(
+        message: Message,
+        parentId: Uuid?
+    ) {
+        when (message) {
+            is Message.Event -> {
+                forwardEventsToEventSenders(parentId, message)
+            }
+
+            is Message.Intent -> {
+                forwardEventsToParameterHolders(parentId, message)
             }
         }
     }
 
     private fun CoroutineScope.forwardEventsToParameterHolders(
-        parentId: Uuid,
+        parentId: Uuid?,
         message: Message.Intent
     ) {
         intentsHandlers.forEach { holder ->
@@ -187,7 +216,7 @@ abstract class EventChain<E : Message.Event>(
     }
 
     private fun CoroutineScope.forwardEventsToEventSenders(
-        parentId: Uuid,
+        parentId: Uuid?,
         message: Message.Event
     ) {
         eventsSender.forEach { target ->

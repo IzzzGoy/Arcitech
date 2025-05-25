@@ -21,7 +21,7 @@ import kotlin.uuid.ExperimentalUuidApi
  */
 abstract class PostMetadataEventHandler<E : Message>(
     private val messageType: KClass<E>
-) : EventHandler<E>, PostMetadataProvider {
+) : EventHandler<E>, PostMetadataProvider, Processable{
     /**
      * Internal mutable flow collecting metadata after each message is handled.
      */
@@ -41,8 +41,7 @@ abstract class PostMetadataEventHandler<E : Message>(
      *
      * @param e the message to process.
      */
-    @OptIn(ExperimentalUuidApi::class)
-    suspend fun process(e: Message) {
+    override suspend fun process(e: Message) {
         messageType.safeCast(e)?.let { typedMessage ->
             val executionTime = measureTime {
                 handle(typedMessage)
