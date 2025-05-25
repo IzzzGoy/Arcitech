@@ -221,9 +221,7 @@ abstract class EventChain<E : Message.Event>(
     ) {
         eventsSender.forEach { target ->
             launch(CallMetadata(parentId, Uuid.Companion.random())) {
-                if (target is AbstractEventHandler<*> && target.canProcessed(message)) {
-                    target.process(message)
-                } else {
+                if (target is AbstractEventHandler<*> && target.canProcessed(message) || target is EventChain<*>) {
                     target.process(message)
                 }
             }
