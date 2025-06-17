@@ -21,7 +21,7 @@ import kotlin.uuid.ExperimentalUuidApi
  */
 abstract class PostMetadataEventHandler<E : Message>(
     private val messageType: KClass<E>
-) : EventHandler<E>, PostMetadataProvider, Processable{
+) : EventHandler<E>, PostMetadataProvider, Processable {
     /**
      * Internal mutable flow collecting metadata after each message is handled.
      */
