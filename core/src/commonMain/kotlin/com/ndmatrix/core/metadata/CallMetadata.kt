@@ -14,7 +14,7 @@ import kotlin.uuid.Uuid
  * Stored in the [kotlin.coroutines.CoroutineContext] to propagate identifiers between coroutines.
  */
 @OptIn(ExperimentalUuidApi::class)
-class CallMetadata(
+data class CallMetadata(
     val parentId: Uuid? = null,
     val currentId: Uuid = Uuid.Companion.random(),
 ) : CoroutineContext.Element {
