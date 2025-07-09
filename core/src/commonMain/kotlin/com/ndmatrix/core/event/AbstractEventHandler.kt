@@ -1,6 +1,8 @@
 package com.ndmatrix.core.event
 
 import com.ndmatrix.core.metadata.CallMetadata
+import com.ndmatrix.core.metadata.Caller
+import com.ndmatrix.core.metadata.ExecutionMetadata
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -12,7 +14,6 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import kotlin.reflect.KClass
 import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
 
 /**
  * Abstract base class for event handlers, providing infrastructure
@@ -24,6 +25,7 @@ import kotlin.uuid.Uuid
  *
  * @property events a _hot_ [kotlinx.coroutines.flow.SharedFlow] of child events without metadata.
  * @property rawEvents a [kotlinx.coroutines.flow.SharedFlow] of pairs (parentId, Message) for internal routing.
+ * @property metadata a set of [KClass] that can be processed by this handler.
  */
 @OptIn(ExperimentalUuidApi::class)
 abstract class AbstractEventHandler<E : Message.Event>(
@@ -31,13 +33,15 @@ abstract class AbstractEventHandler<E : Message.Event>(
     messageType: KClass<E>
 ) : PostMetadataEventHandler<E>(messageType), Chainable {
     protected val coroutineScope: CoroutineScope = CoroutineScope(coroutineContext)
-    private val _events = MutableSharedFlow<Pair<Uuid, Message>>()
+    private val _events = MutableSharedFlow<ExecutionMetadata>()
 
+    override val metadata: Set<KClass<out Message>>
+        get() = setOf(messageType)
     /**
      * A flow of child events without metadata.
      */
     override val events = _events
-        .map { it.second }
+        .map { it.message }
         .shareIn(coroutineScope, SharingStarted.Companion.Eagerly)
 
     /**
@@ -59,7 +63,16 @@ abstract class AbstractEventHandler<E : Message.Event>(
 
         // Launch a new coroutine for emission to avoid blocking the handler
         coroutineScope.launch {
-            _events.emit(parentId to block())
+            _events.emit(
+                ExecutionMetadata(
+                    parentId = parentId,
+                    message =  block(),
+                    sender = Caller(
+                        name = this@AbstractEventHandler.toString(),
+                        parent = metadata.caller
+                    )
+                )
+            )
         }
     }
 }

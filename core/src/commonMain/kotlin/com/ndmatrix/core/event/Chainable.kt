@@ -1,8 +1,8 @@
 package com.ndmatrix.core.event
 
+import com.ndmatrix.core.metadata.ExecutionMetadata
 import kotlinx.coroutines.flow.Flow
-import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
+import kotlin.reflect.KClass
 
 /**
  * Contract, that allows to chain event processing into chains.
@@ -17,15 +17,18 @@ interface Chainable: Processable {
     /**
      * Flow of upstream events with metadata.
      * */
-    @OptIn(ExperimentalUuidApi::class)
-    val rawEvents: Flow<Pair<Uuid, Message>>
+    val rawEvents: Flow<ExecutionMetadata>
 }
 /**
  * Contract to process message.
+ * @property metadata a set of [KClass] that can be processed by this handler.
  * */
 interface Processable {
     /**
      * Process given [Message].
      * */
     suspend fun process(e: Message)
+
+    val metadata: Set<KClass<out Message>>
+        get() = emptySet()
 }

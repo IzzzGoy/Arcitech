@@ -33,4 +33,7 @@ abstract class ParameterHolder<E : Message.Intent, S : Any?>(
     protected fun update(value: S) {
         _flow.value = value
     }
+
+    override val metadata: Set<KClass<out Message>>
+        get() = setOf(messageType)
 }

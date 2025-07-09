@@ -20,7 +20,7 @@ import kotlin.uuid.ExperimentalUuidApi
  * @property messageType the specific type of message this handler is designed to process.
  */
 abstract class PostMetadataEventHandler<E : Message>(
-    private val messageType: KClass<E>
+    protected val messageType: KClass<E>
 ) : EventHandler<E>, PostMetadataProvider, Processable {
     /**
      * Internal mutable flow collecting metadata after each message is handled.
@@ -69,7 +69,9 @@ abstract class PostMetadataEventHandler<E : Message>(
                 event = message,
                 duration = duration,
                 parentId = callMetadata.parentId,
-                currentId = callMetadata.currentId
+                currentId = callMetadata.currentId,
+                caller = callMetadata.caller,
+                consumer = callMetadata.consumer,
             )
         )
     }

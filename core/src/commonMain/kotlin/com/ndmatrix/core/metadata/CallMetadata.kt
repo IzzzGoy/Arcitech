@@ -10,6 +10,9 @@ import kotlin.uuid.Uuid
  *
  * @property parentId the UUID of the parent event, or null if this is the root event.
  * @property currentId the UUID of the current event within the execution chain.
+ * @property caller the recursive stack of [com.ndmatrix.core.event.Processable.process] objects
+ * calls.
+ * @property consumer the consumer`s identifier of the event.
  *
  * Stored in the [kotlin.coroutines.CoroutineContext] to propagate identifiers between coroutines.
  */
@@ -17,6 +20,8 @@ import kotlin.uuid.Uuid
 data class CallMetadata(
     val parentId: Uuid? = null,
     val currentId: Uuid = Uuid.Companion.random(),
+    val caller: Caller? = null,
+    val consumer: String? = null,
 ) : CoroutineContext.Element {
     companion object {
         /**

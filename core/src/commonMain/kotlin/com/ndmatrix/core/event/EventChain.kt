@@ -1,6 +1,8 @@
 package com.ndmatrix.core.event
 
 import com.ndmatrix.core.metadata.CallMetadata
+import com.ndmatrix.core.metadata.Caller
+import com.ndmatrix.core.metadata.ExecutionMetadata
 import com.ndmatrix.core.metadata.PostExecMetadata
 import com.ndmatrix.core.parameter.ParameterHolder
 import kotlinx.coroutines.CoroutineScope
@@ -8,11 +10,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
+import kotlin.reflect.KClass
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -27,6 +31,7 @@ import kotlin.uuid.Uuid
  * @param isDebug flag to enable collection of [com.ndmatrix.core.metadata.PostExecMetadata] for debugging purposes.
  *
  * @property coroutineScope the internal [kotlinx.coroutines.CoroutineScope] for launching chain coroutines.
+ * @property metadata a set of [KClass] that can be processed by this handler.
  */
 @OptIn(ExperimentalUuidApi::class)
 @Suppress("UNUSED")
@@ -52,6 +57,9 @@ abstract class EventChain<E : Message.Event>(
 
     private val coroutineScope = CoroutineScope(coroutineContext)
 
+    override val metadata: Set<KClass<out Message>> =
+        (eventsSender + intentsHandlers).flatMap(Processable::metadata).toSet()
+
     /**
      * Emits a merged flow of all events collected from the registered event senders.
      *
@@ -63,11 +71,25 @@ abstract class EventChain<E : Message.Event>(
      */
     override val events: SharedFlow<Message> =
         merge(*eventsSender.map { it.events }.toTypedArray())
-            .shareIn(coroutineScope, SharingStarted.Eagerly)
+            .shareIn(
+                coroutineScope,
+                SharingStarted.Eagerly
+            )
 
-    override val rawEvents: Flow<Pair<Uuid, Message>> =
+    override val rawEvents: Flow<ExecutionMetadata> =
         merge(*eventsSender.map { it.rawEvents }.toTypedArray())
-            .shareIn(coroutineScope, SharingStarted.Eagerly)
+            .map {
+                it.copy(
+                    sender = Caller(
+                        name = this.toString(),
+                        parent = it.sender,
+                    )
+                )
+            }
+            .shareIn(
+                coroutineScope,
+                SharingStarted.Eagerly
+            )
 
     init {
         if (isDebug) {
@@ -98,7 +120,7 @@ abstract class EventChain<E : Message.Event>(
      * @param e the initial event to start the chain.
      */
     fun general(e: E) {
-        dispatchEventWithMetadata(null, e)
+        dispatchEventWithMetadata(null, null, e)
     }
 
     /**
@@ -109,7 +131,8 @@ abstract class EventChain<E : Message.Event>(
      */
     override suspend fun process(e: Message) {
         val parentId = coroutineContext[CallMetadata.CallMetadataKey]?.parentId
-        dispatchEventWithMetadata(parentId, e)
+        val caller = coroutineContext[CallMetadata.CallMetadataKey]?.caller
+        dispatchEventWithMetadata(parentId, caller, e)
     }
 
     /**
@@ -119,8 +142,8 @@ abstract class EventChain<E : Message.Event>(
      * @param e the event to be dispatched to the handlers.
      * @param parentId the parent event ID if exists.
      */
-    private fun dispatchEventWithMetadata(parentId: Uuid?, e: Message) {
-        coroutineScope.launch(CallMetadata(parentId, Uuid.random())) {
+    private fun dispatchEventWithMetadata(parentId: Uuid?, caller: Caller?,  e: Message) {
+        coroutineScope.launch(CallMetadata(parentId, Uuid.random(), caller)) {
             dispatchEvent(e)
         }
     }
@@ -181,34 +204,41 @@ abstract class EventChain<E : Message.Event>(
      */
     private fun CoroutineScope.launchRawEventsCollection(sender: Chainable) {
         launch {
-            sender.rawEvents.collect { (parentId, message) ->
-                forwardEventsToConsumers(message, parentId)
+            sender.rawEvents.collect { (parentId, message, caller) ->
+                forwardEventsToConsumers(message, parentId, caller)
             }
         }
     }
 
     private fun CoroutineScope.forwardEventsToConsumers(
         message: Message,
-        parentId: Uuid?
+        parentId: Uuid?,
+        caller: Caller?,
     ) {
         when (message) {
             is Message.Event -> {
-                forwardEventsToEventSenders(parentId, message)
+                forwardEventsToEventSenders(parentId, message, caller)
             }
 
             is Message.Intent -> {
-                forwardEventsToParameterHolders(parentId, message)
+                forwardEventsToParameterHolders(parentId, message, caller)
             }
         }
     }
 
     private fun CoroutineScope.forwardEventsToParameterHolders(
-        parentId: Uuid?,
-        message: Message.Intent
+        parentId: Uuid?, message: Message.Intent, caller: Caller?
     ) {
         intentsHandlers.forEach { holder ->
             if (holder.canProcessed(message)) {
-                launch(CallMetadata(parentId, Uuid.Companion.random())) {
+                launch(
+                    context = CallMetadata(
+                        parentId = parentId,
+                        currentId = Uuid.Companion.random(),
+                        caller = caller,
+                        consumer = holder.toString()
+                    )
+                ) {
                     holder.process(message)
                 }
             }
@@ -216,15 +246,33 @@ abstract class EventChain<E : Message.Event>(
     }
 
     private fun CoroutineScope.forwardEventsToEventSenders(
-        parentId: Uuid?,
-        message: Message.Event
+        parentId: Uuid?, message: Message.Event, caller: Caller?
     ) {
         eventsSender.forEach { target ->
-            if ((target is AbstractEventHandler<*> && target.canProcessed(message)) || target is EventChain<*>) {
-                launch(CallMetadata(parentId, Uuid.Companion.random())) {
+            if (target.metadata.any { it.isInstance(message) } && !findInCallers(caller, target.toString())) {
+                launch(
+                    context = CallMetadata(
+                        parentId = parentId,
+                        currentId = Uuid.Companion.random(),
+                        caller = caller,
+                        consumer = target.toString()
+                    )
+                ) {
                     target.process(message)
                 }
             }
+        }
+    }
+
+    private fun findInCallers(root: Caller?,  target: String): Boolean {
+        return if (root != null) {
+            if (root.name == target) {
+                true
+            } else {
+                findInCallers(root.parent, target)
+            }
+        } else {
+            false
         }
     }
 }

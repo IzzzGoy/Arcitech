@@ -60,7 +60,7 @@ class TestEventHandler : AbstractEventHandler<TestEventHandler.TestEvent>(
 }
 
 class TestEventChain : EventChain<TestEventHandler.TestEvent>(
-    intentsHandlers = listOf(),
+    intentsHandlers = listOf(SampleParameterHolder()),
     eventsSender = listOf(TestEventHandler()),
     isDebug = true,
     coroutineContext = Dispatchers.Default
@@ -85,10 +85,10 @@ class TestEvent1Handler : AbstractEventHandler<TestEvent1Handler.TestEvent1>(
 }
 
 class TestEvent1Chain(
-    sampleParameterHolder: SampleParameterHolder
+    testEventChain: TestEventChain,
 ) : EventChain<TestEvent1Handler.TestEvent1>(
-    intentsHandlers = listOf(sampleParameterHolder),
-    eventsSender = listOf(TestEvent1Handler(), TestEventChain()),
+    intentsHandlers = listOf(),
+    eventsSender = listOf(TestEvent1Handler(), testEventChain),
     isDebug = true,
     coroutineContext = Dispatchers.Default
 ) {
@@ -158,9 +158,10 @@ class Test {
     @Test
     fun testChains() {
         val sampleParameterHolder = SampleParameterHolder()
-        val testChain = TestEvent1Chain(sampleParameterHolder)
+        val testChain = TestEventChain()
+        val test1Chain = TestEvent1Chain(testChain)
         runBlocking(Dispatchers.Default.limitedParallelism(1)) {
-            testChain.general(TestEvent1Handler.TestEvent1)
+            test1Chain.general(TestEvent1Handler.TestEvent1)
             delay(3.seconds)
             println(sampleParameterHolder.value)
         }
